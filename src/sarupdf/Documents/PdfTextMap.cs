@@ -1,4 +1,5 @@
 using System.Globalization;
+using UglyToad.PdfPig.DocumentLayoutAnalysis;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.ReadingOrderDetector;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
@@ -73,7 +74,9 @@ internal sealed class PdfTextMap
                 result.Pages.Add(new(page.Width, page.Height, crop.Left, crop.Bottom, crop.Width, crop.Height, page.Rotation.Value));
                 var words = page.GetWords(NearestNeighbourWordExtractor.Instance);
                 var blocks = DocstrumBoundingBoxes.Instance.GetBlocks(words);
-                var ordered = UnsupervisedReadingOrderDetector.Instance.Get(blocks);
+                if (page.Rotation.Value == 0) blocks = SplitMixedColumns(blocks, page.Width);
+                IEnumerable<TextBlock> ordered = UnsupervisedReadingOrderDetector.Instance.Get(blocks);
+                if (page.Rotation.Value == 0) ordered = OrderColumns(ordered.ToArray(), page.Width);
                 foreach (var block in ordered)
                 foreach (var line in block.TextLines)
                 {
@@ -140,6 +143,79 @@ internal sealed class PdfTextMap
             result.ExistingComments.Add(new(p, RectangleF.FromLTRB(points.Min(a => a.X), points.Min(a => a.Y), points.Max(a => a.X), points.Max(a => a.Y)), text));
         }
         return result;
+    }
+
+    // Docstrum can merge both columns into one block, and even one TextLine.
+    // Split words only when a wide block has a clear gutter and substantial,
+    // vertically overlapping text on both sides; leave normal headings intact.
+    private static IReadOnlyList<TextBlock> SplitMixedColumns(IReadOnlyList<TextBlock> blocks, double pageWidth)
+    {
+        List<TextBlock> result = [];
+        foreach (var block in blocks)
+        {
+            if (block.TextLines.Count < 8 || block.BoundingBox.Width < pageWidth * .7) { result.Add(block); continue; }
+            var words = block.TextLines.SelectMany(line => line.Words).ToArray();
+            double? split = null, bestDistance = double.MaxValue;
+            for (int step = 150; step <= 350; step++)
+            {
+                double x = pageWidth * step / 500.0;
+                if (words.Any(word => word.BoundingBox.Left < x && word.BoundingBox.Right > x)) continue;
+                var left = block.TextLines.Where(line => line.Words.Any(word => word.BoundingBox.Right <= x)).ToArray();
+                var right = block.TextLines.Where(line => line.Words.Any(word => word.BoundingBox.Left >= x)).ToArray();
+                if (left.Length < 4 || right.Length < 4) continue;
+                var leftWords = words.Where(word => word.BoundingBox.Right <= x).ToArray();
+                var rightWords = words.Where(word => word.BoundingBox.Left >= x).ToArray();
+                double overlap = Math.Min(leftWords.Max(word => word.BoundingBox.Top), rightWords.Max(word => word.BoundingBox.Top)) -
+                                 Math.Max(leftWords.Min(word => word.BoundingBox.Bottom), rightWords.Min(word => word.BoundingBox.Bottom));
+                if (overlap < pageWidth * .08) continue;
+                double distance = Math.Abs(x - pageWidth / 2);
+                if (distance < bestDistance) { bestDistance = distance; split = x; }
+            }
+            if (split is not { } column) { result.Add(block); continue; }
+            foreach (bool left in new[] { true, false })
+            {
+                var lines = block.TextLines.Select(line => line.Words.Where(word => left ? word.BoundingBox.Right <= column : word.BoundingBox.Left >= column).ToArray())
+                    .Where(line => line.Length > 0).Select(line => new TextLine(line, " ")).OrderByDescending(line => line.BoundingBox.Top).ToArray();
+                if (lines.Length > 0) result.Add(new TextBlock(lines, "\n"));
+            }
+        }
+        return result;
+    }
+
+    // A reading-order detector may alternate whole paragraphs between columns.
+    // Only reorder when several lines on both sides share a clear vertical gutter.
+    private static IReadOnlyList<TextBlock> OrderColumns(IReadOnlyList<TextBlock> blocks, double pageWidth)
+    {
+        if (blocks.Count < 2 || pageWidth <= 0) return blocks;
+        var substantial = blocks.Where(b => b.TextLines.Count >= 2).ToArray();
+        double? gutter = null, bestGap = pageWidth * .003;
+        int bestCoverage = 0;
+        for (int step = 100; step <= 400; step++)
+        {
+            double x = pageWidth * step / 500.0;
+            var left = substantial.Where(b => b.BoundingBox.Right < x).ToArray();
+            var right = substantial.Where(b => b.BoundingBox.Left > x).ToArray();
+            if (left.Sum(b => b.TextLines.Count) < 4 || right.Sum(b => b.TextLines.Count) < 4) continue;
+            double overlap = Math.Min(left.Max(b => b.BoundingBox.Top), right.Max(b => b.BoundingBox.Top)) -
+                             Math.Max(left.Min(b => b.BoundingBox.Bottom), right.Min(b => b.BoundingBox.Bottom));
+            if (overlap < pageWidth * .05) continue;
+            double gap = right.Min(b => b.BoundingBox.Left) - left.Max(b => b.BoundingBox.Right);
+            int coverage = left.Sum(b => b.TextLines.Count) + right.Sum(b => b.TextLines.Count);
+            if (gap > pageWidth * .003 && (coverage > bestCoverage || (coverage == bestCoverage && gap > bestGap)))
+            { bestCoverage = coverage; bestGap = gap; gutter = (right.Min(b => b.BoundingBox.Left) + left.Max(b => b.BoundingBox.Right)) / 2; }
+        }
+        if (gutter is not { } split) return blocks;
+
+        bool Spans(TextBlock b) => b.BoundingBox.Left < split && b.BoundingBox.Right > split;
+        double Middle(TextBlock b) => (b.BoundingBox.Top + b.BoundingBox.Bottom) / 2;
+        var separators = blocks.Where(Spans).OrderByDescending(Middle).ToArray();
+        return blocks.Select((block, index) => new
+        {
+            Block = block, Index = index,
+            Band = Spans(block) ? Array.IndexOf(separators, block) * 2 + 1 : separators.Count(s => Middle(s) > Middle(block)) * 2,
+            Side = block.BoundingBox.Right <= split ? 0 : 1
+        }).OrderBy(x => x.Band).ThenBy(x => x.Side).ThenByDescending(x => x.Block.BoundingBox.Top)
+          .ThenBy(x => x.Index).Select(x => x.Block).ToArray();
     }
 }
 

@@ -41,6 +41,52 @@ internal static class SamplePdf
         ]);
     }
 
+    internal static void WriteTwoColumns(string path)
+    {
+        // Interleave the PDF drawing order deliberately; reading order should
+        // follow columns and paragraphs rather than drawing order or rows.
+        var stream = new StringBuilder("BT /F1 16 Tf 1 0 0 1 60 780 Tm (A wide heading across both columns) Tj ET\n");
+        for (int line = 0; line < 8; line++)
+        {
+            int y = 740 - line * 17 - (line >= 4 ? 20 : 0);
+            stream.Append($"BT /F1 12 Tf 1 0 0 1 60 {y} Tm (Left paragraph line {line + 1} with some text.) Tj ET\n");
+            stream.Append($"BT /F1 12 Tf 1 0 0 1 330 {y} Tm (Right paragraph line {line + 1} with text.) Tj ET\n");
+        }
+        string content = stream.ToString();
+        WriteObjects(path,
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>",
+            $"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}endstream"
+        ]);
+    }
+
+    internal static void WriteNarrowColumns(string path)
+    {
+        var stream = new StringBuilder("BT /F1 14 Tf 1 0 0 1 60 760 Tm (Full width heading) Tj ET\n");
+        stream.Append("BT /F1 9 Tf 1 0 0 1 320 610 Tm (Figure caption on the right side) Tj ET\n");
+        for (int i = 1; i <= 10; i++)
+        {
+            string left = $"Left{i:00} alpha beta gamma delta words here";
+            string right = $"Right{i:00} alpha beta gamma delta text here";
+            string Scale(string value) => (24900.0 / (value.Length * 6)).ToString("0.######", CultureInfo.InvariantCulture);
+            int y = 400 - (i - 1) * 12;
+            stream.Append($"BT /F1 10 Tf {Scale(left)} Tz 1 0 0 1 49 {y} Tm ({left}) Tj ET\n");
+            stream.Append($"BT /F1 10 Tf {Scale(right)} Tz 1 0 0 1 302 {y + 1} Tm ({right}) Tj ET\n");
+        }
+        string content = stream.ToString();
+        WriteObjects(path,
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>",
+            $"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}endstream"
+        ]);
+    }
+
     private static void WriteObjects(string path, List<string> objects)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

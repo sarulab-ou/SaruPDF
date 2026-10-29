@@ -28,6 +28,57 @@ internal static class PdfCommentTests
             Check(selection.SelectedText.Contains("SaruPDF acceptance test / local PDF rendering"));
             Check(selection.Regions().Count == 3 && map.Glyphs.All(g => float.IsFinite(g.Bounds.Left) && float.IsFinite(g.Bounds.Top)));
         });
+        yield return ("two-column selections continue down the same column across paragraphs", () =>
+        {
+            string path = Path.Combine(root, "comment-two-columns.pdf"); SamplePdf.WriteTwoColumns(path);
+            var map = PdfTextMap.Read(path);
+            int Find(string value)
+            {
+                for (int i = 0; i < map.Glyphs.Count; i++)
+                    if (map.Glyphs[i].Text == value[..1] && string.Concat(map.Glyphs.Skip(i).Take(value.Length).Select(item => item.Text)) == value) return i;
+                return -1;
+            }
+            int leftStart = Find("Left paragraph line 1"), leftEnd = Find("Left paragraph line 8"), rightStart = Find("Right paragraph line 1"), rightEnd = Find("Right paragraph line 8");
+            Check(leftStart >= 0 && leftStart < leftEnd && leftEnd < rightStart && rightStart < rightEnd);
+            var selection = new PdfCaretSelection(map); selection.Set(leftStart, false); selection.Set(leftEnd + 4, true);
+            Check(selection.SelectedText.Contains("Left paragraph line 5") && !selection.SelectedText.Contains("Right paragraph"));
+            Check(selection.Regions().Single().Quads.All(q => map.Pages[0].Rectangle(q).Right < .5));
+            selection.Set(rightStart, false); selection.Set(rightEnd + 5, true);
+            Check(selection.SelectedText.Contains("Right paragraph line 5") && !selection.SelectedText.Contains("Left paragraph"));
+            selection.Set(Find("Left paragraph line 4"), false); selection.Move(Keys.Down, true);
+            Check(selection.Current is { } current && current.Bounds.Left < .5 && selection.SelectedText.Contains("Left paragraph line 4"));
+        });
+        yield return ("narrow columns with merged lines keep selection and highlights in the intended column", () =>
+        {
+            string path = Path.Combine(root, "comment-narrow-columns.pdf"); SamplePdf.WriteNarrowColumns(path);
+            using (var pdf = UglyToad.PdfPig.PdfDocument.Open(path))
+            {
+                var words = pdf.GetPage(1).GetWords(UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor.NearestNeighbourWordExtractor.Instance);
+                var raw = UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter.DocstrumBoundingBoxes.Instance.GetBlocks(words);
+                Check(raw.Any(block => block.TextLines.Any(line => line.Words.Any(w => w.Text.StartsWith("Left")) && line.Words.Any(w => w.Text.StartsWith("Right")))));
+            }
+            var map = PdfTextMap.Read(path);
+            var lines = map.Glyphs.Select((glyph, index) => (glyph, index)).GroupBy(item => item.glyph.Line)
+                .Select(line => (Index: line.First().index, Text: string.Concat(line.Select(item => item.glyph.Text)))).ToArray();
+            int Find(string text) => lines.Single(line => line.Text.StartsWith(text)).Index;
+            int left1 = Find("Left01"), left10 = Find("Left10"), right1 = Find("Right01"), right10 = Find("Right10");
+            Check(left1 < left10 && left10 < right1 && right1 < right10);
+            var selection = new PdfCaretSelection(map);
+            void CheckLeft(int start, int end)
+            {
+                selection.Set(start, false); selection.Set(end, true);
+                Check(selection.SelectedText.Contains("Left05") && !selection.SelectedText.Contains("Right"));
+                Check(selection.Regions().Single().Quads.All(q => map.Pages[0].Rectangle(q).Right < .5));
+            }
+            CheckLeft(left1, left10 + 5); CheckLeft(left10 + 5, left1);
+            selection.Set(right1, false); selection.Set(right10 + 6, true);
+            Check(selection.SelectedText.Contains("Right05") && !selection.SelectedText.Contains("Left"));
+            selection.Set(left1, false); selection.Set(right10 + 6, true);
+            Check(selection.SelectedText.Contains("Left10") && selection.SelectedText.Contains("Right01"));
+            selection.Set(left1, false); selection.Move(Keys.Down, true);
+            Check(selection.Current is { } current && current.Bounds.Left < .5f && selection.SelectedText.Contains("Left01"));
+            selection.SelectAll(); Check(selection.SelectedText.Contains("Left10") && selection.SelectedText.Contains("Right10"));
+        });
         yield return ("Japanese CJK text supports glyph selection and Unicode PDF comments", () =>
         {
             string path = Path.Combine(root, "japanese-caret.pdf"); SamplePdf.WriteJapanese(path);
@@ -298,6 +349,64 @@ internal static class PdfCommentTests
             }
             Check(visible); host.Controls.Remove(viewer);
         }
+    });
+
+    internal static Task VerifyNarrowColumnDragAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string source = Path.Combine(root, "narrow-column-drag.pdf"); SamplePdf.WriteNarrowColumns(source);
+        using var window = new PdfWindow(Path.Combine(root, "narrow-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(source)); window.Show();
+        var edit = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(m => m.Text == "編集(&E)");
+        edit.DropDownItems.OfType<ToolStripMenuItem>().Single(m => m.Name == "CommentMode").PerformClick();
+        var editor = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var canvas = editor.Viewer;
+        await WaitUntilAsync(() => canvas.Visible && canvas.Selection is not null && canvas.IsPageRendered(0));
+        var selection = canvas.Selection!;
+        var lines = selection.Map.Glyphs.Select((g, i) => (g, i)).GroupBy(x => x.g.Line)
+            .Select(line => (Index: line.First().i, Text: string.Concat(line.Select(x => x.g.Text)))).ToArray();
+        int Find(string prefix) => lines.Single(line => line.Text.StartsWith(prefix)).Index;
+        int left1 = Find("Left01"), left8 = Find("Left08"), right1 = Find("Right01"), right8 = Find("Right08");
+        canvas.CenterPointOnPage(0, selection.Map.Glyphs[left1].Bounds.Top + .05f);
+        Point At(int index)
+        {
+            var glyph = selection.Map.Glyphs[index]; var rect = canvas.PageBounds(glyph.Page);
+            return new((int)(rect.Left + rect.Width * (glyph.Bounds.Left + glyph.Bounds.Width * .2f)),
+                (int)(rect.Top + rect.Height * (glyph.Bounds.Top + glyph.Bounds.Height * .5f)));
+        }
+        void Drag(int from, int to)
+        { canvas.BeginTextDrag(At(from), Keys.None); canvas.ContinueTextDrag(At(to)); canvas.EndTextDrag(At(to)); }
+        Drag(left1, left8); Check(selection.SelectedText.Contains("Left05") && !selection.SelectedText.Contains("Right"));
+        Check(selection.Regions().Single().Quads.All(q => selection.Map.Pages[0].Rectangle(q).Right < .5));
+        Drag(left8, left1); Check(selection.SelectedText.Contains("Left05") && !selection.SelectedText.Contains("Right"));
+        Drag(right1, right8); Check(selection.SelectedText.Contains("Right05") && !selection.SelectedText.Contains("Left"));
+        Drag(left1, right8); Check(selection.SelectedText.Contains("Left08") && selection.SelectedText.Contains("Right05"));
+        host.Controls.Remove(window);
+    });
+
+    internal static Task VerifyTwoColumnDragAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string source = Path.Combine(root, "two-column-drag.pdf"); SamplePdf.WriteTwoColumns(source);
+        using var window = new PdfWindow(Path.Combine(root, "column-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(source)); window.Show();
+        var edit = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(m => m.Text == "編集(&E)");
+        edit.DropDownItems.OfType<ToolStripMenuItem>().Single(m => m.Name == "CommentMode").PerformClick();
+        var editor = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var canvas = editor.Viewer;
+        await WaitUntilAsync(() => canvas.Visible && canvas.Selection is not null && canvas.IsPageRendered(0));
+        var selection = canvas.Selection!;
+        var leftLines = selection.Map.Glyphs.Select((g, i) => (g, i)).Where(x => x.g.Text == "L" && x.g.Bounds.Left < .5f).ToArray();
+        Check(leftLines.Length == 8);
+        canvas.CenterPointOnPage(0, leftLines[3].g.Bounds.Top);
+        Point At(int index)
+        {
+            var glyph = selection.Map.Glyphs[index]; var rect = canvas.PageBounds(glyph.Page);
+            return new((int)(rect.Left + rect.Width * (glyph.Bounds.Left + glyph.Bounds.Width * .2f)),
+                (int)(rect.Top + rect.Height * (glyph.Bounds.Top + glyph.Bounds.Height * .5f)));
+        }
+        canvas.BeginTextDrag(At(leftLines[0].i), Keys.None); canvas.ContinueTextDrag(At(leftLines[6].i)); canvas.EndTextDrag(At(leftLines[6].i));
+        Check(selection.SelectedText.Contains("Left paragraph line 5") && !selection.SelectedText.Contains("Right paragraph"));
+        Check(selection.Regions().Single().Quads.All(q => selection.Map.Pages[0].Rectangle(q).Right < .5));
+        host.Controls.Remove(window);
     });
 
     internal static Task VerifyDragEditModesAsync(string root) => OnSurfaceAsync(async host =>
