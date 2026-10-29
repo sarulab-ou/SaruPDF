@@ -24,8 +24,8 @@ SDK 未導入の場合は次を実行できます。Microsoft 公式 ZIP と公�
 GitHub で配布する場合は、ソースをコミット・push した後、`scripts/Publish-GitHubRelease.ps1` を実行します。WSL の GitHub CLI 認証が必要です。スクリプトは既存リリースの上書き、リポジトリの公開範囲の変更、コミットを自動で行いません。
 
 ```text
-artifacts/release/SaruPDF-0.7.0-win-x64/SaruPDF.exe
-artifacts/release/SaruPDF-0.7.0-Setup-x64.exe
+artifacts/release/SaruPDF-0.7.1-win-x64/SaruPDF.exe
+artifacts/release/SaruPDF-0.7.1-Setup-x64.exe
 ```
 
 NuGet は `Microsoft.Web.WebView2 1.0.4314.35` 、MIT版の `PDFsharp 6.2.4`、Apache 2.0版の `PdfPig 0.1.16` を完全固定し、`packages.lock.json` を保存しています。スクリプトは `--locked-mode` で復元します。SDK・パッケージキャッシュ・ビルド生成物・セットアップ EXE は Git 管理対象外です。依存を意図的に変更したときだけ `dotnet restore --force-evaluate` でロックを更新してください。PDFsharpとその依存ライセンスは配布フォルダーの `third-party-licenses/` に同梱します。
@@ -105,6 +105,8 @@ Windows 11では `NativeWindows.SetPageOperationTitleBar` がDWMの `DWMWA_CAPTI
 
 `PdfCommentCanvas` はページ描画を共用し、青い文字選択と緑のキャレットを重ねます。`PdfCommentEditor` はEnterで `PdfCommentDialog` を開き、空欄の追加を禁止します。Ctrl+Enterで追加、Enterで改行、Escで取り消しです。保存済みの注釈のContentsとQuadPoints／Rectを読み、コメントモードのクリックで本文を表示します。現在の版で既存注釈の変更・削除は行いません。
 
+`PdfCommentLabel` は赤字のレイアウトと文字のベクトル輪郭を共用し、入力直後の描画と保存するFreeText注釈のAP/Nを一致させます。文字の輪郭の下端を基準にハイライトへ少し重ね、ページ端に収まるよう配置します。赤字はWindowsのYu Mincho Light（游明朝 Light）から文字輪郭を作り、未導入時は游明朝、MS P明朝、システムの明朝系フォントの順で使用します。フォントファイルの追加配布や本文の画像化を行いません。長い本文は折り返し、見た目の高さを最大200ページ単位に制限します。ContentsとPopupには全文を保持します。FreeTextは赤色のDA、明示的なベクトルAP、HighlightへのIRTとRT/Groupを持ちます。ページ寸法の取得には変更しないEffectiveCropBoxReadOnly／MediaBoxReadOnlyを使い、未指定のCropBoxを作りません。
+
 `PdfEditSession` はコメントもUndo/Redo・保存済み基準に含めます。`PdfComments` がISO 32000のHighlight／Popup注釈を出力し、`/QuadPoints` は既定ユーザー空間の四角形を反時計回りに格納します。`/Contents` はUnicode PDF文字列、改行はCRとし、`/T`、`/NM`、`/CreationDate`、`/M`、`/P`、Popupの親参照を設定します。標準の `/AP /N` Form XObjectを与え、Multiply・透明度を含めたハイライト表示を作ります。本文の画像化や別ファイルへのコメント保存は行いません。ページをまたぐコメントは各ページの注釈として保存し、追加全体を1回でUndoできます。
 
 ページ操作とコメントは排他的なモードです。変更済みならモード切り替え時にも保存・破棄・取消を確認します。保存は既存の一時ファイル・Flush・再読込検証・原本SHA-256確認・原子的な置換を共用します。文字情報のないPDF、複雑な段組み、縦書き、特殊なフォントや読み順の完全対応は保証しません。PDF/A／PDF/UAの適合性を新たに保証するものではありません。
@@ -113,7 +115,7 @@ Windows 11では `NativeWindows.SetPageOperationTitleBar` がDWMの `DWMWA_CAPTI
 
 ## 確認
 
-`scripts/Test.ps1`: **70件**。既存のPDF編集・コピー試験に、複数PDFのインポート、拡大縮小、通常表示からの倍率引き継ぎ、モード名とCtrl+N削除の検査を含みます。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
+`scripts/Test.ps1`: **72件**。既存のPDF編集・コピー試験に、複数PDFのインポート、拡大縮小、通常表示からの倍率引き継ぎ、モード名とCtrl+N削除の検査を含みます。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
 
 `scripts/Test-Installer.ps1` は生成したセットアップを作業フォルダー内の専用ディレクトリにサイレント導入・更新・削除し、候補登録や既定設定・ユーザーファイル保持を検証します。**これは現在のユーザーに一時的な SaruPDF 登録とスタートメニューを作る試験です。** 既存の SaruPDF 登録がある場合は上書きせず停止します。結果は検証記録を参照してください。
 

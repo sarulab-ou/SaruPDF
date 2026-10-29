@@ -2,7 +2,7 @@
 
 Windows向けのPDF Viewer・ページ編集アプリです。1文書につき1つのウィンドウが開きます。同じPDFをもう一度開くと、既存のウィンドウへ移動します。ページ番号などのツールバーを省き、文書を広く表示します。
 
-**[ダウンロード（Windows x64・インストーラー.exe）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.0/SaruPDF-0.7.0-Setup-x64.exe)** · [使い方](#使い方) · [開発・ビルド](docs/development.md)
+**[ダウンロード（Windows x64・インストーラー.exe）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.1/SaruPDF-0.7.1-Setup-x64.exe)** · [使い方](#使い方) · [開発・ビルド](docs/development.md)
 
 ![Windows上のSaruPDF。ページ番号のツールバーを表示せずにPDFを表示し、タイトルバーにファイル名とフルパス、赤いPDFアイコンを表示しています。](docs/screenshots/viewer.jpg)
 
@@ -22,11 +22,11 @@ _SaruPDF v0.2.1の実画面。自動テストで生成した検証用PDFを表�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.0 Windows x64インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.0/SaruPDF-0.7.0-Setup-x64.exe)**
+**[SaruPDF v0.7.1 Windows x64インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.1/SaruPDF-0.7.1-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.0) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.0/SaruPDF-0.7.0-SHA256SUMS.txt) · [ソースからのビルド](docs/development.md)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.1) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.1/SaruPDF-0.7.1-SHA256SUMS.txt) · [ソースからのビルド](docs/development.md)
 
-1. `SaruPDF-0.7.0-Setup-x64.exe`をダウンロードし、**Windows 10（1809以降）/ 11 x64**で実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
+1. `SaruPDF-0.7.1-Setup-x64.exe`をダウンロードし、**Windows 10（1809以降）/ 11 x64**で実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtimeが必要です。** インストーラーには含まれません。不足している場合は、アプリが案内する[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）をインストールし、SaruPDFを再起動してください。.NET Runtimeは同梱しています。
 3. `.pdf`をダブルクリックで開きたい場合は、Windowsの既定アプリ設定でSaruPDFを選択します。完了画面の「PDF の関連付け設定を開く」から設定できます。
 
@@ -82,7 +82,7 @@ PDFの右クリックから「プログラムから開く」→「別のプロ�
 4. 選択中に**Enter**を押すとコメントボックスが開きます。コメントを入力し、**「追加」またはCtrl+Enter**で確定します。ボックス内のEnterは改行です。Esc／キャンセルでは文書を変更しません。
 5. **Ctrl+S**で保存します。元のPDFを残す場合はCtrl+Shift+Sです。保存前の追加はCtrl+Zで取り消し、Ctrl+Yでやり直せます。
 
-コメントは**PDF標準のHighlight（ハイライト）とPopup注釈**としてPDF本体に保存します。選択範囲の座標、コメント本文、日本語、作成日時を持ち、本文を画像化しません。複数ページの範囲にはページごとに注釈を追加します。コメントモードでハイライトをクリックすると、そのコメントを表示できます。保存後は対応する他のPDFビューアーでも扱える形式です。コメント一覧や吹き出しの表示方法はビューアーにより異なります。
+新しく追加したコメントは、**ハイライトに少し重ねた赤字**で表示します。赤字には細めの明朝体「游明朝 Light」を使います。保存後も赤字が残ります。コメントは**PDF標準のHighlight（ハイライト）・Popup・FreeText注釈**としてPDF本体に保存します。選択範囲の座標、コメント本文、日本語、作成日時を持ち、本文を画像化しません。複数ページの範囲にはページごとに注釈を追加します。コメントモードでハイライトをクリックすると、そのコメントを表示できます。保存後は対応する他のPDFビューアーでも扱える形式です。コメント一覧や吹き出しの表示方法はビューアーにより異なります。長い赤字コメントは表示枠で折り返し、入りきらない本文はクリックして全文を確認できます。以前の版で保存した注釈の見た目は自動では変更しません。
 
 本文の文字情報を使用するため、**画像だけのスキャンPDFではキャレット選択できません**。OCRは行いません。複雑な段組み、縦書き、文字情報が正しくないPDFでは読み順や選択範囲が一致しない場合があります。今回の版ではコメントの追加・閲覧に対応し、保存済みのコメント本文の変更・削除は未対応です。
 
@@ -149,6 +149,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-SDKやインストーラー用ツールの準備、配布用ビルド、GitHub Releasesへの掲載は[開発・ビルドガイド](docs/development.md)を参照してください。自動テストは70件で、倍率の引き継ぎ・PDFインポート・拡大縮小キー・PDF間コピー・保存・元ファイル保護と実際のPDF描画を検査します。
+SDKやインストーラー用ツールの準備、配布用ビルド、GitHub Releasesへの掲載は[開発・ビルドガイド](docs/development.md)を参照してください。自動テストは72件で、倍率の引き継ぎ・PDFインポート・拡大縮小キー・PDF間コピー・保存・元ファイル保護と実際のPDF描画を検査します。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

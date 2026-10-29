@@ -7,6 +7,7 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
     private PdfCaretSelection? selection;
     private readonly System.Windows.Forms.Timer blink = new() { Interval = 500 };
     private bool caretVisible = true;
+    private readonly Dictionary<Guid, PdfCommentLabel> labels = [];
     internal PdfCaretSelection? Selection => selection;
     internal IReadOnlyList<PdfCommentMark> Comments { get; private set; } = [];
     internal event Action? CommentRequested;
@@ -30,7 +31,15 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
         }
         FollowCaret(); Invalidate();
     }
-    internal void UpdateComments(IReadOnlyList<PdfCommentMark> comments) { Comments = comments; Invalidate(); }
+    internal void UpdateComments(IReadOnlyList<PdfCommentMark> comments)
+    {
+        Comments = comments;
+        foreach (var id in labels.Keys.Where(id => !comments.Any(c => c.Id == id)).ToArray()) { labels[id].Dispose(); labels.Remove(id); }
+        if (selection is not null)
+            foreach (var comment in comments.Where(c => !labels.ContainsKey(c.Id)))
+                labels.Add(comment.Id, new PdfCommentLabel(selection.Map.Pages[comment.PageId], comment.Quads, comment.Text));
+        Invalidate();
+    }
     internal bool TryHandleCaretKey(Keys keyData)
     {
         var key = keyData & Keys.KeyCode; var modifiers = keyData & Keys.Modifiers;
@@ -80,7 +89,8 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
             if (ModifierKeys == Keys.None)
             {
                 string? text = selection.Map.ExistingComments.FirstOrDefault(c => c.Page == page && c.Bounds.Contains(point))?.Text;
-                text ??= Comments.FirstOrDefault(c => c.PageId == page && c.Quads.Any(q => selection.Map.Pages[page].Rectangle(q).Contains(point)))?.Text;
+                text ??= Comments.FirstOrDefault(c => c.PageId == page && (c.Quads.Any(q => selection.Map.Pages[page].Rectangle(q).Contains(point)) ||
+                    (labels.TryGetValue(c.Id, out var label) && label.NormalizedBounds.Contains(point))))?.Text;
                 if (text is not null) { ExistingCommentRequested?.Invoke(text); return; }
             }
             var candidates = selection.Map.Glyphs.Select((g, i) => (g, i)).Where(item => item.g.Page == page).ToArray();
@@ -104,6 +114,9 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
         foreach (var quad in comment.Quads) e.Graphics.FillRectangle(yellow, Screen(comment.PageId, selection.Map.Pages[comment.PageId].Rectangle(quad)));
         using var selected = new SolidBrush(Color.FromArgb(90, 30, 125, 245));
         foreach (var glyph in selection.Selected.Where(g => g.Text != "\n")) e.Graphics.FillRectangle(selected, Screen(glyph.Page, glyph.Bounds));
+        foreach (var comment in Comments.Where(c => c.PageId < PageCount))
+            if (labels.TryGetValue(comment.Id, out var label) && Screen(comment.PageId, label.NormalizedBounds).IntersectsWith(ClientRectangle))
+                label.Draw(e.Graphics, PageBounds(comment.PageId));
         if (caretVisible && selection.Current is { } current)
         {
             var rect = Screen(current.Page, current.Bounds);
@@ -115,5 +128,9 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
             TextRenderer.DrawText(e.Graphics, "文字情報がないPDFです。画像だけのページではキャレット選択できません。", Font,
                 new Rectangle(12, 12, Math.Max(1, ClientSize.Width - 24), 60), Color.DarkGreen, Color.White, TextFormatFlags.WordBreak);
     }
-    protected override void Dispose(bool disposing) { if (disposing) blink.Dispose(); base.Dispose(disposing); }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { blink.Dispose(); foreach (var label in labels.Values) label.Dispose(); labels.Clear(); }
+        base.Dispose(disposing);
+    }
 }

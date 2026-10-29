@@ -10,7 +10,7 @@
     <Product>SaruPDF</Product>
     <Title>SaruPDF</Title>
     <RootNamespace>SaruPdf</RootNamespace>
-    <Version>0.7.0</Version>
+    <Version>0.7.1</Version>
     <ApplicationIcon>../../assets/SaruPDF.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

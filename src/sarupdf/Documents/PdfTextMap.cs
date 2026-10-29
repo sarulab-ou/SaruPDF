@@ -11,6 +11,19 @@ internal sealed record PdfTextGlyph(string Text, int Page, int Line, RectangleF 
 internal sealed record PdfExistingComment(int Page, RectangleF Bounds, string Text);
 internal sealed record PdfTextPage(double Width, double Height, double Left, double Bottom, double CropWidth, double CropHeight, int Rotation)
 {
+    internal static PdfTextPage FromPdfPage(PdfSharp.Pdf.PdfPage page)
+    {
+        // Writable box getters create absent entries. Reading geometry must not
+        // insert an empty CropBox, which can hide the original page in readers.
+        var crop = page.EffectiveCropBoxReadOnly; var media = page.MediaBoxReadOnly;
+        if (crop.Width <= 0 || crop.Height <= 0) crop = media;
+        double left = Math.Max(crop.X1, media.X1), bottom = Math.Max(crop.Y1, media.Y1);
+        double right = Math.Min(crop.X2, media.X2), top = Math.Min(crop.Y2, media.Y2);
+        if (right <= left || top <= bottom) { left = crop.X1; bottom = crop.Y1; right = crop.X2; top = crop.Y2; }
+        int rotation = ((page.Rotate % 360) + 360) % 360;
+        double width = right - left, height = top - bottom;
+        return new(rotation is 90 or 270 ? height : width, rotation is 90 or 270 ? width : height, left, bottom, width, height, rotation);
+    }
     internal PdfPointValue ToPdf(double x, double y) => Rotation switch
     {
         90 => new(Left + CropWidth - y, Bottom + x),

@@ -34,7 +34,7 @@ internal static class PdfCommentTests
             using var session = new PdfEditSession(path); session.AddComment(selection.Regions(), "日本語の範囲にコメント");
             session.Save(Path.Combine(root, "japanese-caret-comment.pdf"));
             VerifyStandard(session.SourcePath, 1);
-            Check(PdfTextMap.Read(session.SourcePath).ExistingComments.Single().Text == "日本語の範囲にコメント");
+            Check(PdfTextMap.Read(session.SourcePath).ExistingComments.All(c => c.Text == "日本語の範囲にコメント"));
         });
         yield return ("image-only PDFs have no fabricated text or selectable comment regions", () =>
         {
@@ -72,7 +72,7 @@ internal static class PdfCommentTests
             session.Undo(); Check(session.IsDirty && session.Comments.Count == 0);
             session.Redo(); Check(!session.IsDirty && session.Comments.Count == 1);
             var read = PdfTextMap.Read(saved);
-            Check(read.ExistingComments.Count == 1 && read.ExistingComments[0].Text == "日本語のコメント\r2行目です 🐵");
+            Check(read.ExistingComments.Count == 2 && read.ExistingComments.All(c => c.Text == "日本語のコメント\r2行目です 🐵"));
         });
         yield return ("multi-page comments undo atomically and retain their page after a page move", () =>
         {
@@ -83,7 +83,7 @@ internal static class PdfCommentTests
             session.Undo(); Check(!session.IsDirty && session.Comments.Count == 0);
             session.Redo(); session.Cut(0); session.Paste(2); session.Save(saved); VerifyStandard(saved, 3);
             using var pdf = PdfReader.Open(saved, PdfDocumentOpenMode.Import);
-            Check(pdf.Pages.Cast<PdfPage>().All(page => page.Annotations.Count == 2));
+            Check(pdf.Pages.Cast<PdfPage>().All(page => page.Annotations.Count == 3));
         });
         yield return ("invalid comments and failed saves preserve PDF bytes, comments and undo state", () =>
         {
@@ -115,6 +115,32 @@ internal static class PdfCommentTests
             Check(quad.Points.All(point => point.X >= 60 && point.X < 100 && point.Y > 700 && point.Y < 800));
             using var session = new PdfEditSession(path); session.AddComment(selection.Regions(), "Rotation check");
             session.Save(Path.Combine(root, "rotated-comment.pdf"));
+        });
+        yield return ("inline comment labels overlap the first highlight and stay within cropped page edges", () =>
+        {
+            foreach (int rotation in new[] { 0, 90, 180, 270 })
+            {
+                var page = new PdfTextPage(rotation is 90 or 270 ? 750 : 515, rotation is 90 or 270 ? 515 : 750, 40, 50, 515, 750, rotation);
+                var highlight = new RectangleF(.72f, .55f, .12f, .025f);
+                using var label = new PdfCommentLabel(page, [page.Quad(highlight)], "日本語の赤字コメント\n2行目も赤色です");
+                Check(label.Outline.PointCount > 20 && label.NormalizedBounds.IntersectsWith(highlight));
+                Check(label.NormalizedBounds.Left >= 0 && label.NormalizedBounds.Top >= 0 && label.NormalizedBounds.Right <= 1 && label.NormalizedBounds.Bottom <= 1);
+                var edge = new RectangleF(.99f, .002f, .009f, .025f);
+                using var longLabel = new PdfCommentLabel(page, [page.Quad(edge)], string.Concat(Enumerable.Repeat("長いコメントです。", 300)));
+                Check(longLabel.NormalizedBounds.Left >= 0 && longLabel.NormalizedBounds.Top >= 0 && longLabel.NormalizedBounds.Right <= 1 && longLabel.NormalizedBounds.Bottom <= 1);
+            }
+        });
+        yield return ("inline comment appearances preserve the original page boxes and body text", () =>
+        {
+            string source = Fixture("Preserve page"), saved = Path.Combine(root, "red-comment-preserved.pdf");
+            var before = PdfTextMap.Read(source);
+            var selection = new PdfCaretSelection(before); selection.Set(3, true);
+            using var session = new PdfEditSession(source); session.AddComment(selection.Regions(), "赤字コメント"); session.Save(saved);
+            using var pdf = PdfReader.Open(saved, PdfDocumentOpenMode.Import);
+            Check(pdf.Pages[0].MediaBoxReadOnly.Width == 595 && pdf.Pages[0].MediaBoxReadOnly.Height == 842);
+            Check(!pdf.Pages[0].HasCropBox);
+            var after = PdfTextMap.Read(saved);
+            Check(after.Pages.SequenceEqual(before.Pages) && string.Concat(after.Glyphs.Select(g => g.Text)) == string.Concat(before.Glyphs.Select(g => g.Text)));
         });
     }
 
@@ -161,6 +187,12 @@ internal static class PdfCommentTests
         sawDialog = false; cancelFirst = false; timer.Start(); Key(window, Keys.Enter);
         await WaitUntilAsync(() => editor.Session.Comments.Count == 1);
         Check(sawDialog && editor.Session.IsDirty && !selection.HasSelection);
+        using (var pending = new Bitmap(editor.Viewer.Width, editor.Viewer.Height))
+        {
+            editor.Viewer.DrawToBitmap(pending, editor.Viewer.ClientRectangle);
+            Check(RedPixels(pending) > 20);
+            pending.Save(Path.Combine(root, "comment-inline-unsaved.png"));
+        }
         Key(window, Keys.Control | Keys.Z); await WaitUntilAsync(() => editor.Session.Comments.Count == 0);
         Key(window, Keys.Control | Keys.Y); await WaitUntilAsync(() => editor.Session.Comments.Count == 1);
         string saved = Path.Combine(root, "comment-ui-saved.pdf"); Check(window.SaveToPath(saved)); VerifyStandard(saved, 1);
@@ -174,31 +206,56 @@ internal static class PdfCommentTests
         await WaitUntilAsync(() => rendered.IsPageRendered(0));
         using var image = new Bitmap(rendered.Width, rendered.Height); rendered.DrawToBitmap(image, rendered.ClientRectangle);
         image.Save(Path.Combine(root, "comment-saved-render.png"));
-        var page = rendered.PageBounds(0);
-        var region = Rectangle.Intersect(Rectangle.Ceiling(new RectangleF(page.Left + page.Width * glyph.Bounds.Left, page.Top + page.Height * glyph.Bounds.Top,
-            page.Width * glyph.Bounds.Width * 2, page.Height * glyph.Bounds.Height)), rendered.ClientRectangle);
+        Check(RedPixels(image) > 20);
         int yellow = 0;
-        for (int y = region.Top; y < region.Bottom; y++) for (int x = region.Left; x < region.Right; x++)
-        { var pixel = image.GetPixel(x, y); if (pixel.R > 180 && pixel.G > 150 && pixel.B < 230) yellow++; }
+        for (int y = 0; y < image.Height; y++) for (int x = 0; x < image.Width; x++)
+        { var pixel = image.GetPixel(x, y); if (IsYellow(pixel)) yellow++; }
         Check(yellow > 20);
+        var redBounds = PixelBounds(image, color => color.R > 180 && color.G < 80 && color.B < 80);
+        var yellowBounds = PixelBounds(image, IsYellow, Rectangle.Inflate(redBounds, 24, 48));
+        Check(redBounds.Top < yellowBounds.Top && redBounds.Bottom > yellowBounds.Top);
     });
 
     private static void VerifyStandard(string path, int expected)
     {
         using var document = PdfReader.Open(path, PdfDocumentOpenMode.Import);
-        int highlights = 0, popups = 0;
+        int highlights = 0, popups = 0, labels = 0;
         foreach (PdfPage page in document.Pages)
         for (int i = 0; i < page.Annotations.Count; i++)
         {
             var annotation = page.Annotations[i]; string type = annotation.Elements.GetName("/Subtype");
             if (type == "/Popup") { popups++; Check(annotation.Elements.GetReference("/Parent") is not null); continue; }
+            if (type == "/FreeText")
+            {
+                labels++;
+                Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetString("/DA").Contains("1 0 0 rg"));
+                Check(annotation.Elements.GetName("/RT") == "/Group" && annotation.Elements.GetReference("/IRT") is not null);
+                Check(annotation.Elements.GetDictionary("/AP")?.Elements.GetDictionary("/N")?.Stream is not null);
+                continue;
+            }
             if (type != "/Highlight") continue;
             highlights++;
             Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetArray("/QuadPoints")!.Elements.Count % 8 == 0);
             Check(annotation.Elements.GetDictionary("/AP")?.Elements.GetDictionary("/N")?.Stream is not null);
             Check(annotation.Elements.GetReference("/Popup") is not null && annotation.Elements.GetReference("/P") is not null);
         }
-        Check(highlights == expected && popups == expected);
+        Check(highlights == expected && popups == expected && labels == expected);
+    }
+    private static int RedPixels(Bitmap image)
+    {
+        int red = 0;
+        for (int y = 0; y < image.Height; y++) for (int x = 0; x < image.Width; x++)
+        { var pixel = image.GetPixel(x, y); if (pixel.R > 180 && pixel.G < 80 && pixel.B < 80) red++; }
+        return red;
+    }
+    private static bool IsYellow(Color color) => color.R > 230 && color.G > 200 && color.B < color.G - 40;
+    private static Rectangle PixelBounds(Bitmap image, Func<Color, bool> matches, Rectangle? area = null)
+    {
+        int left = image.Width, top = image.Height, right = -1, bottom = -1;
+        var region = Rectangle.Intersect(area ?? new Rectangle(0, 0, image.Width, image.Height), new Rectangle(0, 0, image.Width, image.Height));
+        for (int y = region.Top; y < region.Bottom; y++) for (int x = region.Left; x < region.Right; x++)
+            if (matches(image.GetPixel(x, y))) { left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x); bottom = Math.Max(bottom, y); }
+        return right < left ? Rectangle.Empty : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
     }
     private static void Check(bool condition) { if (!condition) throw new Exception("PDF comment assertion failed."); }
     private static void Throws<T>(Action action) where T : Exception
