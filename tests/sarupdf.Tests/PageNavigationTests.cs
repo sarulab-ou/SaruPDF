@@ -106,7 +106,7 @@ internal static class PageNavigationTests
         return done.Task.WaitAsync(TimeSpan.FromSeconds(60));
     }
 
-    private static async Task ExpectColorAsync(WebView2 web, Color expected)
+    internal static async Task ExpectColorAsync(WebView2 web, Color expected)
     {
         var deadline = DateTime.UtcNow.AddSeconds(12);
         Color actual = Color.Empty;
@@ -130,7 +130,7 @@ internal static class PageNavigationTests
 
     // Original twelve-page PDF: distinct colors make the rendered-page
     // assertion independent of metadata, URI fragments and accessibility text.
-    private static void WriteColorPdf(string path)
+    internal static void WriteColorPdf(string path)
     {
         string[] colors = ["1 0 0", "0 1 0", "0 0 1", "0.5 0 0", "0 0.5 0", "0 0 0.5", "1 0.5 0", "0 0.5 1", "0.5 0 1", "0.5 1 0", "1 0 0.5", "1 1 0"];
         string kids = string.Join(" ", Enumerable.Range(0, colors.Length).Select(i => $"{3 + i * 2} 0 R"));
@@ -156,7 +156,7 @@ internal static class PageNavigationTests
         Write($"trailer\n<< /Size {objects.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
     }
 
-    private sealed class RenderTestWindow : Form
+    internal sealed class RenderTestWindow : Form
     {
         internal RenderTestWindow()
         {

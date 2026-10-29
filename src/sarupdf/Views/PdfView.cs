@@ -9,7 +9,8 @@ namespace SaruPdf.Views;
 internal sealed class PdfView : UserControl
 {
     private const string RuntimeDownload = "https://developer.microsoft.com/microsoft-edge/webview2/#download-section";
-    private readonly PdfDocument document;
+    private PdfDocument document;
+    private int initialPage = 1;
     private readonly string? userDataFolder;
     private readonly WebView2 web = new() { Dock = DockStyle.Fill, AllowExternalDrop = false, DefaultBackgroundColor = Color.White };
     private readonly Label notice = new() { Dock = DockStyle.Fill, Text = "PDF Viewer を準備しています…", TextAlign = ContentAlignment.MiddleCenter, Padding = new Padding(24), AutoEllipsis = true };
@@ -26,6 +27,8 @@ internal sealed class PdfView : UserControl
     public event Action<string>? OpenRequested;
     public event Action? OpenDialogRequested;
     public event Action? CloseRequested;
+    public event Func<Keys, bool>? CommandKeyRequested;
+    public event Action<int>? PageJumpRequested;
 
     public PdfView(PdfDocument document, string? userDataFolder = null)
     {
@@ -79,6 +82,12 @@ internal sealed class PdfView : UserControl
             core.ProcessFailed += (_, e) => ShowFailure($"PDF Viewer が停止しました（{e.ProcessFailedKind}）。\nこのウィンドウを閉じて、PDF を開き直してください。", false);
             web.KeyDown += (_, e) =>
             {
+                if (CommandKeyRequested?.Invoke(e.KeyData) == true)
+                {
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    return;
+                }
                 if (TryHandlePageKey(e.KeyData))
                 {
                     e.Handled = true;
@@ -97,7 +106,7 @@ internal sealed class PdfView : UserControl
                     else CloseRequested?.Invoke();
                 });
             };
-            var uri = new UriBuilder(document.Uri) { Fragment = "toolbar=0" }.Uri;
+            var uri = new UriBuilder(document.Uri) { Fragment = $"toolbar=0&page={initialPage}" }.Uri;
             core.Navigate(uri.AbsoluteUri);
         }
         catch (Exception ex) when (IsDisposed || Disposing) { _ = ex; }
@@ -169,6 +178,18 @@ internal sealed class PdfView : UserControl
     private void GoToPage(int page)
     {
         if (IsDisposed || Disposing || !ready) return;
+        if (PageJumpRequested is not null) { PageJumpRequested.Invoke(page); return; }
+        NavigateDocument(document, page);
+    }
+
+    internal void NavigateDocument(PdfDocument targetDocument, int page = 1)
+    {
+        if (IsDisposed || Disposing) return;
+        document = targetDocument;
+        initialPage = page;
+        CancelPageInput();
+        if (web.CoreWebView2 is null) return;
+        ready = false;
         // The built-in PDF viewer ignores fragment-only changes after loading.
         // A fresh document URI makes it honor the page parameter on every jump.
         var target = new UriBuilder(document.Uri)

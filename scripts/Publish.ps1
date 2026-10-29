@@ -18,5 +18,16 @@ try {
     $webViewPackage = Join-Path $env:NUGET_PACKAGES 'microsoft.web.webview2/1.0.4314.35'
     Copy-Item -LiteralPath (Join-Path $webViewPackage 'LICENSE.txt') -Destination (Join-Path $output 'WebView2-LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $webViewPackage 'NOTICE.txt') -Destination (Join-Path $output 'WebView2-NOTICE.txt')
+    $licenses = Join-Path $output 'third-party-licenses'
+    New-Item -ItemType Directory -Path $licenses -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/PDFsharp-LICENSE.txt') -Destination $licenses
+    foreach ($package in @(
+        @{ Path = 'microsoft.extensions.logging.abstractions/8.0.3'; Name = 'Microsoft.Extensions.Logging.Abstractions' },
+        @{ Path = 'microsoft.extensions.dependencyinjection.abstractions/8.0.2'; Name = 'Microsoft.Extensions.DependencyInjection.Abstractions' }
+    )) {
+        foreach ($notice in @('LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT')) {
+            Copy-Item -LiteralPath (Join-Path $env:NUGET_PACKAGES "$($package.Path)/$notice") -Destination (Join-Path $licenses "$($package.Name)-$notice")
+        }
+    }
     Write-Output "インストーラー用ファイル: $output"
 } finally { Pop-Location }

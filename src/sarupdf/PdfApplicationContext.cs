@@ -89,6 +89,8 @@ internal sealed class PdfApplicationContext : ApplicationContext
         var window = new PdfWindow();
         catalog.Add(window);
         window.OpenRequested += paths => HandleRequest(OpenRequest.FromArguments(paths, Environment.CurrentDirectory));
+        window.CanUseDocumentPath = path => !catalog.TryFind(path, out var existing) || ReferenceEquals(existing, window);
+        window.DocumentPathChanged += document => catalog.Reassign(document.Path, window);
         window.Activated += (_, _) => catalog.Activate(window);
         window.FormClosed += (_, _) =>
         {

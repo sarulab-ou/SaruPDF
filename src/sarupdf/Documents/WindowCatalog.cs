@@ -26,6 +26,15 @@ internal sealed class WindowCatalog<T> where T : class
 
     public void Activate(T window) => LastActive = window;
 
+    public void Reassign(string path, T window)
+    {
+        if (documents.TryGetValue(path, out var existing) && !ReferenceEquals(existing, window))
+            throw new InvalidOperationException("保存先は別のウィンドウで開かれています。");
+        foreach (var key in documents.Where(pair => ReferenceEquals(pair.Value, window)).Select(pair => pair.Key).ToArray())
+            documents.Remove(key);
+        documents[path] = window;
+    }
+
     public void Remove(T window)
     {
         windows.Remove(window);
