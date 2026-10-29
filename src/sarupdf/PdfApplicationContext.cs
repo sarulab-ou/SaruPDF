@@ -8,6 +8,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
 {
     private readonly Control dispatcher = new();
     private readonly WindowCatalog<PdfWindow> catalog = new();
+    private readonly PdfPageClipboard pageClipboard = new();
     private readonly HashSet<Guid> completed = [];
     private readonly Queue<Guid> recent = new();
     private readonly System.Windows.Forms.Timer exitTimer = new() { Interval = 200 };
@@ -86,7 +87,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
 
     private PdfWindow CreateWindow()
     {
-        var window = new PdfWindow();
+        var window = new PdfWindow(pageClipboard: pageClipboard);
         catalog.Add(window);
         window.OpenRequested += paths => HandleRequest(OpenRequest.FromArguments(paths, Environment.CurrentDirectory));
         window.CanUseDocumentPath = path => !catalog.TryFind(path, out var existing) || ReferenceEquals(existing, window);
@@ -120,6 +121,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
             stopping = true;
             exitTimer.Dispose();
             foreach (var window in catalog.Windows.ToArray()) window.Dispose();
+            pageClipboard.Clear();
             dispatcher.Dispose();
         }
         base.Dispose(disposing);

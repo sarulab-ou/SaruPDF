@@ -15,10 +15,12 @@ internal sealed class PdfWindow : Form
     private readonly TextBox errorText = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(255, 241, 224), AccessibleName = "エラー" };
     private PdfView? viewer;
     private readonly string? userDataFolder;
+    private readonly PdfPageClipboard pageClipboard;
     private PdfDocument? document;
     private PdfEditor? editor;
     private readonly ToolStripMenuItem editMode = new("編集モード(&M)") { Name = "EditMode", Enabled = false };
     private readonly ToolStripMenuItem cutPage = new("ページを切り取り(&T)") { ShortcutKeys = Keys.Control | Keys.X, Enabled = false };
+    private readonly ToolStripMenuItem copyPage = new("ページをコピー(&C)") { ShortcutKeys = Keys.Control | Keys.C, Enabled = false };
     private readonly ToolStripMenuItem pastePage = new("ページを貼り付け(&P)") { ShortcutKeys = Keys.Control | Keys.V, Enabled = false };
     private readonly ToolStripMenuItem undoEdit = new("元に戻す(&U)") { ShortcutKeys = Keys.Control | Keys.Z, Enabled = false };
     private readonly ToolStripMenuItem redoEdit = new("やり直し(&R)") { ShortcutKeys = Keys.Control | Keys.Y, Enabled = false };
@@ -31,9 +33,10 @@ internal sealed class PdfWindow : Form
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal Func<string, bool>? CanUseDocumentPath { get; set; }
 
-    public PdfWindow(string? userDataFolder = null)
+    public PdfWindow(string? userDataFolder = null, PdfPageClipboard? pageClipboard = null)
     {
         this.userDataFolder = userDataFolder;
+        this.pageClipboard = pageClipboard ?? new PdfPageClipboard();
         Text = "SaruPDF";
         ClientSize = new Size(1080, 800);
         MinimumSize = new Size(560, 420);
@@ -51,9 +54,10 @@ internal sealed class PdfWindow : Form
         file.DropDownItems.Add(new ToolStripMenuItem("このウィンドウを閉じる(&W)", null, (_, _) => Close()) { ShortcutKeys = Keys.Control | Keys.W });
         menu.Items.Add(file);
         var edit = new ToolStripMenuItem("編集(&E)");
-        edit.DropDownItems.AddRange([editMode, new ToolStripSeparator(), cutPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
+        edit.DropDownItems.AddRange([editMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
         editMode.Click += (_, _) => ToggleEditMode();
         cutPage.Click += (_, _) => editor?.Cut();
+        copyPage.Click += (_, _) => editor?.Copy();
         pastePage.Click += (_, _) => editor?.Paste();
         undoEdit.Click += (_, _) => editor?.Undo();
         redoEdit.Click += (_, _) => editor?.Redo();
@@ -157,7 +161,7 @@ internal sealed class PdfWindow : Form
             UseWaitCursor = true;
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
-            editor = new PdfEditor(session);
+            editor = new PdfEditor(session, pageClipboard);
             editor.StateChanged += UpdateEditMenus;
             editor.Failed += ex => ShowError("ページを編集できませんでした。\n" + ex.Message);
             viewer.Visible = false;
@@ -180,6 +184,7 @@ internal sealed class PdfWindow : Form
     {
         editMode.Checked = editor is not null;
         cutPage.Enabled = editor?.CanCut == true;
+        copyPage.Enabled = editor?.CanCopy == true;
         pastePage.Enabled = editor?.CanPaste == true;
         undoEdit.Enabled = editor?.Session.CanUndo == true;
         redoEdit.Enabled = editor?.Session.CanRedo == true;
@@ -193,6 +198,7 @@ internal sealed class PdfWindow : Form
         Action? command = keyData switch
         {
             Keys.Control | Keys.X => () => editor?.Cut(),
+            Keys.Control | Keys.C => () => editor?.Copy(),
             Keys.Control | Keys.V => () => editor?.Paste(),
             Keys.Control | Keys.Z => () => editor?.Undo(),
             Keys.Control | Keys.Y => () => editor?.Redo(),

@@ -284,7 +284,7 @@ internal static class PdfEditingTests
         window.Close(); Check(window.IsDisposed);
     });
 
-    private static Task OnSurfaceAsync(Func<Form, Task> action)
+    internal static Task OnSurfaceAsync(Func<Form, Task> action)
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
@@ -305,19 +305,19 @@ internal static class PdfEditingTests
         thread.SetApartmentState(ApartmentState.STA); thread.Start();
         return done.Task.WaitAsync(TimeSpan.FromSeconds(60));
     }
-    private static void RevealPage(PdfPageCanvas canvas, int index)
+    internal static void RevealPage(PdfPageCanvas canvas, int index)
     {
         var rectangle = canvas.PageBounds(index);
         canvas.AutoScrollPosition = new Point(0, Math.Max(0, rectangle.Top - canvas.AutoScrollPosition.Y - 32));
         canvas.Invalidate();
     }
-    private static Point VisibleCenter(PdfPageCanvas canvas, int index)
+    internal static Point VisibleCenter(PdfPageCanvas canvas, int index)
     {
         var rectangle = Rectangle.Intersect(canvas.PageBounds(index), canvas.ClientRectangle);
         Check(rectangle.Width > 0 && rectangle.Height > 0);
         return new Point(rectangle.Left + rectangle.Width / 2, rectangle.Top + rectangle.Height / 2);
     }
-    private static async Task ExpectCanvasColorAsync(PdfPageCanvas canvas, int index, Color color)
+    internal static async Task ExpectCanvasColorAsync(PdfPageCanvas canvas, int index, Color color)
     {
         await WaitUntilAsync(() => canvas.IsPageRendered(index));
         using var bitmap = new Bitmap(canvas.Width, canvas.Height);
@@ -327,7 +327,7 @@ internal static class PdfEditingTests
         if (Math.Abs(actual.R - color.R) > 12 || Math.Abs(actual.G - color.G) > 12 || Math.Abs(actual.B - color.B) > 12)
             throw new Exception($"Canvas page {index + 1}: expected {color}, painted {actual}.");
     }
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    internal static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(12);
         while (!condition())

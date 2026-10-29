@@ -3,12 +3,15 @@ using PdfSharp.Pdf.IO;
 
 namespace SaruPdf.Documents;
 
-// Page identities refer to the immutable input snapshot, never to a preview file.
+// Stable page IDs refer to immutable original/copied PDF snapshots.
 internal sealed class PdfEditSession : IDisposable
 {
     private sealed record State(int[] Pages, int[] Cut);
     private readonly byte[] original;
     private readonly List<int> pages;
+    private sealed record ImportedPage(PdfPageBundle Bundle, int Page);
+    private readonly List<ImportedPage> imported = [];
+    private readonly Dictionary<Guid, string> bundlePreviews = [];
     private readonly Stack<State> undo = new();
     private readonly Stack<State> redo = new();
     private readonly string previewDirectory = Path.Combine(Path.GetTempPath(), "SaruPDF-edit-" + Guid.NewGuid().ToString("N"));
@@ -69,6 +72,31 @@ internal sealed class PdfEditSession : IDisposable
         cut = [];
     }
 
+    internal PdfPageBundle Copy(IEnumerable<int> indexes)
+    {
+        if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてからコピーしてください。");
+        int[] selected = indexes.Distinct().Order().ToArray();
+        if (selected.Length == 0 || selected.Any(index => index < 0 || index >= PageCount))
+            throw new ArgumentOutOfRangeException(nameof(indexes));
+        using var composed = new MemoryStream(Serialize(), false);
+        using var source = PdfReader.Open(composed, PdfDocumentOpenMode.Import);
+        using var output = new PdfSharp.Pdf.PdfDocument();
+        foreach (int index in selected) output.Pages.Add(source.Pages[index]);
+        using var stream = new MemoryStream();
+        output.Save(stream, false);
+        return new PdfPageBundle(stream.ToArray(), selected.Length);
+    }
+
+    internal void PasteCopy(int index, PdfPageBundle bundle)
+    {
+        if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてからコピーを挿入してください。");
+        if (index < 0 || index > PageCount) throw new ArgumentOutOfRangeException(nameof(index));
+        Remember();
+        int first = TotalPages + imported.Count;
+        for (int i = 0; i < bundle.PageCount; i++) imported.Add(new ImportedPage(bundle, i));
+        pages.InsertRange(index, Enumerable.Range(first, bundle.PageCount));
+    }
+
     internal bool Undo() => Restore(undo, redo);
     internal bool Redo() => Restore(redo, undo);
     private State Snapshot() => new([.. pages], [.. cut]);
@@ -99,6 +127,22 @@ internal sealed class PdfEditSession : IDisposable
         return path;
     }
 
+    internal IReadOnlyList<PdfRenderPage> RenderPages()
+    {
+        string originalPath = WriteOriginalPreview();
+        List<PdfRenderPage> result = [.. Enumerable.Range(0, TotalPages).Select(i => new PdfRenderPage(originalPath, (uint)i))];
+        foreach (var page in imported)
+        {
+            if (!bundlePreviews.TryGetValue(page.Bundle.Id, out string? path))
+            {
+                path = Path.Combine(previewDirectory, page.Bundle.Id.ToString("N") + ".pdf");
+                page.Bundle.WriteTo(path); previews.Add(path); bundlePreviews.Add(page.Bundle.Id, path);
+            }
+            result.Add(new PdfRenderPage(path, (uint)page.Page));
+        }
+        return result;
+    }
+
     private byte[] Serialize()
     {
         using var input = new MemoryStream(original, false);
@@ -106,18 +150,40 @@ internal sealed class PdfEditSession : IDisposable
         // Move the original page references in place, preserving their catalog
         // links. Remove/Add re-registers existing objects in PDFsharp 6.2.4.
         List<int> current = [.. Enumerable.Range(0, TotalPages)];
-        for (int i = 0; i < pages.Count; i++)
+        int[] originals = pages.Where(page => page < TotalPages).ToArray();
+        for (int i = 0; i < originals.Length; i++)
         {
-            int oldIndex = current.IndexOf(pages[i]);
+            int oldIndex = current.IndexOf(originals[i]);
             if (oldIndex == i) continue;
             pdf.Pages.MovePage(oldIndex, i);
-            current.RemoveAt(oldIndex); current.Insert(i, pages[i]);
+            current.RemoveAt(oldIndex); current.Insert(i, originals[i]);
         }
         // Only previews can omit a page while it is held by Cut.
-        while (pdf.PageCount > pages.Count) pdf.Pages.RemoveAt(pdf.PageCount - 1);
-        using var output = new MemoryStream();
-        pdf.Save(output, false);
-        return output.ToArray();
+        while (pdf.PageCount > originals.Length) pdf.Pages.RemoveAt(pdf.PageCount - 1);
+        var sources = new Dictionary<PdfPageBundle, PdfSharp.Pdf.PdfDocument>();
+        var streams = new List<Stream>();
+        try
+        {
+            for (int i = 0; i < pages.Count; i++)
+            {
+                if (pages[i] < TotalPages) continue;
+                var page = imported[pages[i] - TotalPages];
+                if (!sources.TryGetValue(page.Bundle, out var source))
+                {
+                    var stream = page.Bundle.OpenRead(); streams.Add(stream);
+                    source = PdfReader.Open(stream, PdfDocumentOpenMode.Import); sources.Add(page.Bundle, source);
+                }
+                pdf.Pages.Insert(i, source.Pages[page.Page]);
+            }
+            using var output = new MemoryStream();
+            pdf.Save(output, false);
+            return output.ToArray();
+        }
+        finally
+        {
+            foreach (var source in sources.Values) source.Dispose();
+            foreach (var stream in streams) stream.Dispose();
+        }
     }
 
     internal void Save(string path)
@@ -137,7 +203,7 @@ internal sealed class PdfEditSession : IDisposable
             { stream.Write(result); stream.Flush(true); }
             // Finish and validate the complete PDF before replacing any destination.
             using (var check = PdfReader.Open(temporary, PdfDocumentOpenMode.Import))
-                if (check.PageCount != TotalPages) throw new InvalidDataException("保存するPDFのページ数を検証できませんでした。");
+                if (check.PageCount != pages.Count) throw new InvalidDataException("保存するPDFのページ数を検証できませんでした。");
             // Check again after serialization, which may take time for large PDFs.
             if (samePath && (!File.Exists(target) || !SHA256.HashData(File.ReadAllBytes(target)).SequenceEqual(savedHash)))
                 throw new IOException("編集中に元のPDFが変更されました。名前を付けて保存してください。");

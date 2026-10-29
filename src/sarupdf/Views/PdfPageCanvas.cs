@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using SaruPdf.Documents;
 using Windows.Data.Pdf;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -14,7 +15,10 @@ internal sealed class PdfPageCanvas : ScrollableControl
     private readonly PageNumberInput pageInput = new();
     private readonly List<Rectangle> bounds = [];
     private NativePdf? pdf;
-    private SizeF[] sizes = [];
+    private readonly List<SizeF> sizes = [];
+    private readonly List<(NativePdf Document, uint Page)> renderPages = [];
+    private readonly Dictionary<string, NativePdf> documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim sourceGate = new(1);
     private int[] order = [];
     private int anchor, insertion, epoch, layoutWidth;
     private int hoverGap = -1;
@@ -26,11 +30,14 @@ internal sealed class PdfPageCanvas : ScrollableControl
     internal IReadOnlyList<int> SelectedPages => selected.ToArray();
     internal int InsertionIndex => insertion;
     [System.ComponentModel.DefaultValue(false)]
-    internal bool HasCutPages { get; set; }
+    internal bool HasPendingCut { get; set; }
+    [System.ComponentModel.DefaultValue(false)]
+    internal bool CanPastePages { get; set; }
     [System.ComponentModel.DefaultValue(0)]
-    internal int CutCount { get; set; }
+    internal int PasteCount { get; set; }
     internal event Action? SelectionChanged;
     internal event Action? CutRequested;
+    internal event Action? CopyRequested;
     internal event Action<int>? PasteRequested;
     internal event Action? UndoRequested;
     internal event Action? RedoRequested;
@@ -47,14 +54,42 @@ internal sealed class PdfPageCanvas : ScrollableControl
     {
         var loaded = await NativePdf.LoadFromFileAsync(await StorageFile.GetFileFromPathAsync(path));
         if (IsDisposed) return;
-        pdf = loaded;
-        sizes = new SizeF[loaded.PageCount];
-        for (uint i = 0; i < loaded.PageCount; i++)
+        documents[path] = loaded;
+        await LoadSourcesAsync(Enumerable.Range(0, (int)loaded.PageCount).Select(i => new PdfRenderPage(path, (uint)i)).ToArray());
+    }
+    internal async Task LoadSourcesAsync(IReadOnlyList<PdfRenderPage> sources)
+    {
+        await sourceGate.WaitAsync();
+        try
         {
-            using var page = loaded.GetPage(i);
-            sizes[i] = new SizeF((float)page.Size.Width, (float)page.Size.Height);
+            int focus = selected.Count == 0 ? -1 : selected.Min;
+            var scroll = AutoScrollPosition;
+            bool changed = false;
+            for (int i = renderPages.Count; i < sources.Count; i++)
+            {
+                if (IsDisposed) return;
+                var source = sources[i];
+                if (!documents.TryGetValue(source.Path, out var document))
+                {
+                    document = await NativePdf.LoadFromFileAsync(await StorageFile.GetFileFromPathAsync(source.Path));
+                    if (IsDisposed) return;
+                    documents.Add(source.Path, document);
+                }
+                using var page = document.GetPage(source.Page);
+                sizes.Add(new SizeF((float)page.Size.Width, (float)page.Size.Height));
+                renderPages.Add((document, source.Page));
+                pdf ??= document;
+                changed = true;
+            }
+            if (changed)
+            {
+                bool followSelection = focus >= 0 && selected.Count > 0 && selected.Min == focus && AutoScrollPosition == scroll;
+                epoch++; ClearImages(); LayoutPages();
+                if (followSelection) ScrollToPage(focus);
+                RequestRender();
+            }
         }
-        LayoutPages(); RequestRender();
+        finally { sourceGate.Release(); }
     }
     internal void SetOrder(IEnumerable<int> pages, int start, int count = 1)
     {
@@ -136,7 +171,9 @@ internal sealed class PdfPageCanvas : ScrollableControl
         {
             if (!selected.Contains(hit.Page)) SelectIndex(hit.Page, Keys.None);
             menu.Items.Add(new ToolStripMenuItem($"選択した {selected.Count} ページを切り取り", null, (_, _) => CutRequested?.Invoke())
-            { Name = "CutPages", Enabled = !HasCutPages && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+X" });
+            { Name = "CutPages", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+X" });
+            menu.Items.Add(new ToolStripMenuItem($"選択した {selected.Count} ページをコピー", null, (_, _) => CopyRequested?.Invoke())
+            { Name = "CopyPages", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+C" });
             AddPaste(menu, "このページの前に貼り付け", hit.Page);
             AddPaste(menu, "このページの後に貼り付け", hit.Page + 1);
         }
@@ -158,8 +195,8 @@ internal sealed class PdfPageCanvas : ScrollableControl
     }
     private void AddPaste(ContextMenuStrip menu, string text, int index)
     {
-        menu.Items.Add(new ToolStripMenuItem(text + (HasCutPages ? $"（{CutCount}ページ）" : ""), null, (_, _) =>
-        { insertion = index; PasteRequested?.Invoke(index); }) { Name = "PasteAt" + index, Enabled = HasCutPages });
+        menu.Items.Add(new ToolStripMenuItem(text + (CanPastePages ? $"（{PasteCount}ページ）" : ""), null, (_, _) =>
+        { insertion = index; PasteRequested?.Invoke(index); }) { Name = "PasteAt" + index, Enabled = CanPastePages });
     }
     protected override void OnMouseDown(MouseEventArgs e)
     {
@@ -222,15 +259,16 @@ internal sealed class PdfPageCanvas : ScrollableControl
     }
     private void LayoutPages()
     {
-        if (sizes.Length == 0 || ClientSize.Width <= 0) return;
+        if (sizes.Count == 0 || ClientSize.Width <= 0) return;
         int width = Math.Max(120, (int)((ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 48) * zoom));
         if (layoutWidth != width) { layoutWidth = width; epoch++; ClearImages(); }
-        float scale = width / sizes.Max(size => size.Width);
+        float scale = width / Math.Max(sizes.Max(size => size.Width), order.Any(id => id >= sizes.Count) ? 595 : 0);
         int y = PageGap; bounds.Clear();
         foreach (int original in order)
         {
-            int w = Math.Max(1, (int)(sizes[original].Width * scale));
-            int h = Math.Max(1, (int)(sizes[original].Height * scale));
+            var size = original < sizes.Count ? sizes[original] : new SizeF(595, 842);
+            int w = Math.Max(1, (int)(size.Width * scale));
+            int h = Math.Max(1, (int)(size.Height * scale));
             bounds.Add(new Rectangle(24 + (width - w) / 2, y, w, h)); y += h + PageGap;
         }
         AutoScrollMinSize = new Size(width + 48, Math.Max(y + 8, 80)); Invalidate();
@@ -288,10 +326,12 @@ internal sealed class PdfPageCanvas : ScrollableControl
                 {
                     if (version != epoch || IsDisposed || index >= order.Length) break;
                     int original = order[index];
+                    if (original >= renderPages.Count) continue;
                     if (images.ContainsKey(original)) continue;
                     var size = bounds[index].Size;
                     double reduction = Math.Min(1, Math.Min(3000d / size.Width, Math.Sqrt(8_000_000d / ((double)size.Width * size.Height))));
-                    using var page = pdf!.GetPage((uint)original);
+                    var source = renderPages[original];
+                    using var page = source.Document.GetPage(source.Page);
                     using var stream = new InMemoryRandomAccessStream();
                     await page.RenderToStreamAsync(stream, new PdfPageRenderOptions
                     { DestinationWidth = (uint)Math.Max(1, (int)(size.Width * reduction)), DestinationHeight = (uint)Math.Max(1, (int)(size.Height * reduction)) });
@@ -314,7 +354,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
     private void ClearImages() { foreach (var image in images.Values) image.Dispose(); images.Clear(); }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { epoch++; popup?.Dispose(); ClearImages(); pdf = null; }
+        if (disposing) { epoch++; popup?.Dispose(); ClearImages(); pdf = null; documents.Clear(); renderPages.Clear(); sizes.Clear(); }
         base.Dispose(disposing);
     }
 }
