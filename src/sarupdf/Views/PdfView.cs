@@ -10,21 +10,33 @@ internal sealed class PdfView : UserControl
 {
     private const string RuntimeDownload = "https://developer.microsoft.com/microsoft-edge/webview2/#download-section";
     private readonly PdfDocument document;
+    private readonly string? userDataFolder;
     private readonly WebView2 web = new() { Dock = DockStyle.Fill, AllowExternalDrop = false, DefaultBackgroundColor = Color.White };
     private readonly Label notice = new() { Dock = DockStyle.Fill, Text = "PDF Viewer を準備しています…", TextAlign = ContentAlignment.MiddleCenter, Padding = new Padding(24), AutoEllipsis = true };
     private readonly Button runtimeLink = new() { Dock = DockStyle.Bottom, Height = 44, Text = "Microsoft 公式サイトで WebView2 Runtime を入手", Visible = false };
+    private readonly PageNumberInput pageInput = new();
+    private readonly Label pageHint = new()
+    {
+        AutoSize = true, Visible = false, Padding = new Padding(12, 8, 12, 8),
+        BackColor = Color.FromArgb(36, 48, 68), ForeColor = Color.White,
+        AccessibleName = "移動先のページ番号", Anchor = AnchorStyles.Top | AnchorStyles.Right
+    };
     private bool started;
+    private bool ready;
     public event Action<string>? OpenRequested;
     public event Action? OpenDialogRequested;
     public event Action? CloseRequested;
 
-    public PdfView(PdfDocument document)
+    public PdfView(PdfDocument document, string? userDataFolder = null)
     {
         this.document = document;
+        this.userDataFolder = userDataFolder;
         Controls.Add(web);
         Controls.Add(notice);
         Controls.Add(runtimeLink);
+        Controls.Add(pageHint);
         notice.BringToFront();
+        Resize += (_, _) => PositionPageHint();
         runtimeLink.Click += (_, _) => OpenBrowser(new Uri(RuntimeDownload));
     }
 
@@ -34,11 +46,13 @@ internal sealed class PdfView : UserControl
         started = true;
         try
         {
-            string userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            string userData = userDataFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "SaruPDF", "WebView2", $"Session-{Process.GetCurrentProcess().SessionId}");
             var environment = await CoreWebView2Environment.CreateAsync(null, userData);
             if (IsDisposed || Disposing) return;
-            await web.EnsureCoreWebView2Async(environment);
+            var options = environment.CreateCoreWebView2ControllerOptions();
+            options.AllowHostInputProcessing = true;
+            await web.EnsureCoreWebView2Async(environment, options);
             if (IsDisposed || Disposing) return;
             var core = web.CoreWebView2;
             core.Settings.AreDevToolsEnabled = false;
@@ -58,12 +72,19 @@ internal sealed class PdfView : UserControl
             core.NavigationCompleted += (_, e) =>
             {
                 if (IsDisposed) return;
+                ready = e.IsSuccess;
                 if (e.IsSuccess) { notice.Visible = false; runtimeLink.Visible = false; }
                 else ShowFailure($"PDF を表示できませんでした（{e.WebErrorStatus}）。\nファイルが破損していないか、アクセス可能か確認してください。", false);
             };
             core.ProcessFailed += (_, e) => ShowFailure($"PDF Viewer が停止しました（{e.ProcessFailedKind}）。\nこのウィンドウを閉じて、PDF を開き直してください。", false);
             web.KeyDown += (_, e) =>
             {
+                if (TryHandlePageKey(e.KeyData))
+                {
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    return;
+                }
                 if (e.Modifiers != Keys.Control || e.KeyCode is not (Keys.O or Keys.W)) return;
                 e.Handled = true;
                 e.SuppressKeyPress = true;
@@ -88,6 +109,74 @@ internal sealed class PdfView : UserControl
         {
             ShowFailure($"PDF Viewer を初期化できませんでした。\n{ex.Message}\nWebView2 Runtime とユーザーデータフォルダーのアクセス権を確認してください。", true);
         }
+    }
+
+    internal bool TryHandlePageKey(Keys keyData)
+    {
+        if (!ready || (keyData & Keys.Modifiers) != Keys.None) return false;
+        var key = keyData & Keys.KeyCode;
+        int digit = key is >= Keys.D0 and <= Keys.D9 ? key - Keys.D0
+            : key is >= Keys.NumPad0 and <= Keys.NumPad9 ? key - Keys.NumPad0 : -1;
+        if (digit >= 0)
+        {
+            bool appended = pageInput.Append(digit);
+            UpdatePageHint(appended ? null : "ページ番号は10桁以内で入力してください。");
+            return true;
+        }
+        if (!pageInput.IsActive) return false;
+        if (key == Keys.Back)
+        {
+            pageInput.Backspace();
+            UpdatePageHint();
+            return true;
+        }
+        if (key == Keys.Escape)
+        {
+            CancelPageInput();
+            return true;
+        }
+        if (key == Keys.Enter)
+        {
+            if (!pageInput.TryGetPage(out int page)) UpdatePageHint("1以上のページ番号を入力してください。");
+            else
+            {
+                CancelPageInput();
+                // Queue navigation outside WebView2's synchronous keyboard callback.
+                BeginInvoke(() => GoToPage(page));
+            }
+            return true;
+        }
+        CancelPageInput();
+        return false;
+    }
+
+    internal void CancelPageInput()
+    {
+        pageInput.Clear();
+        pageHint.Visible = false;
+    }
+
+    private void UpdatePageHint(string? error = null)
+    {
+        pageHint.Text = error ?? $"移動先: {pageInput.Text} ページ   Enterで移動 / Escで取消";
+        pageHint.Visible = pageInput.IsActive;
+        PositionPageHint();
+        pageHint.BringToFront();
+    }
+
+    private void PositionPageHint() => pageHint.Location = new Point(Math.Max(8, ClientSize.Width - pageHint.Width - 16), 12);
+
+    private void GoToPage(int page)
+    {
+        if (IsDisposed || Disposing || !ready) return;
+        // The built-in PDF viewer ignores fragment-only changes after loading.
+        // A fresh document URI makes it honor the page parameter on every jump.
+        var target = new UriBuilder(document.Uri)
+        {
+            Query = $"sarupdf_jump={Guid.NewGuid():N}",
+            Fragment = $"toolbar=0&page={page}"
+        }.Uri;
+        web.CoreWebView2.Navigate(target.AbsoluteUri);
     }
 
     private void NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)

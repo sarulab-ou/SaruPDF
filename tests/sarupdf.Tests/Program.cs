@@ -176,6 +176,8 @@ internal static class Program
 
         foreach (var (name, run) in AssociationTests.Cases()) await Test(name, run);
         foreach (var (name, run) in UiRegressionTests.Cases(a)) await Test(name, run);
+        foreach (var (name, run) in PageNavigationTests.Cases()) await Test(name, run);
+        await Test("rendered PDF changes pages with number + Enter and respects Escape", () => PageNavigationTests.VerifyRenderingAsync(root));
         Console.WriteLine($"{passed} passed, {failed} failed. Samples: {root}");
         return failed == 0 ? 0 : 1;
     }

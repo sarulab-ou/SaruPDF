@@ -63,6 +63,7 @@ internal sealed class PdfWindow : Form
         Controls.Add(pathBox);
         Controls.Add(menu);
         Shown += async (_, _) => { if (viewer is not null) await viewer.LoadAsync(); };
+        Deactivate += (_, _) => viewer?.CancelPageInput();
     }
 
     public void SetDocument(PdfDocument document)
@@ -88,6 +89,7 @@ internal sealed class PdfWindow : Form
 
     private void SelectFiles()
     {
+        viewer?.CancelPageInput();
         using var dialog = new OpenFileDialog
         {
             Title = "PDF を開く", Filter = "PDF ファイル (*.pdf)|*.pdf",
@@ -98,6 +100,7 @@ internal sealed class PdfWindow : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (viewer?.TryHandlePageKey(keyData) == true) return true;
         if (keyData == (Keys.Control | Keys.O)) { SelectFiles(); return true; }
         if (keyData == (Keys.Control | Keys.W)) { Close(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);

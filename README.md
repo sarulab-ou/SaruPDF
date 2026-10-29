@@ -2,7 +2,7 @@
 
 Windows向けのPDF Viewerです。1文書につき1つのウィンドウが開きます。同じPDFをもう一度開くと、既存のウィンドウへ移動します。ページ番号などのツールバーを省き、文書を広く表示します。
 
-**[ダウンロード（Windows x64・インストーラー.exe）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.1/SaruPDF-0.2.1-Setup-x64.exe)** · [使い方](#使い方) · [開発・ビルド](docs/development.md)
+**[ダウンロード（Windows x64・インストーラー.exe）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.2/SaruPDF-0.2.2-Setup-x64.exe)** · [使い方](#使い方) · [開発・ビルド](docs/development.md)
 
 ![Windows上のSaruPDF。ページ番号のツールバーを表示せずにPDFを表示し、タイトルバーにファイル名とフルパス、赤いPDFアイコンを表示しています。](docs/screenshots/viewer.jpg)
 
@@ -12,18 +12,18 @@ _SaruPDF v0.2.1の実画面。自動テストで生成した検証用PDFを表�
 
 - **1文書、1ウィンドウ。** PDFを好きな位置に並べて使えます。移動・サイズ変更・最小化・最大化をそれぞれ操作でき、Alt+Tabやタスクバーから選べます。タブはありません。
 - **同じPDFは同じウィンドウへ。** アプリ内から開く場合も、Explorerなどから追加起動した場合も、既存の文書へ移動します。最小化中なら復元し、現在のページやズームは保持します。
-- **文書を広く表示。** ページ番号などのPDFツールバー行は非表示です。ページはスクロールで移動します。
+- **文書を広く表示。** ページ番号などのPDFツールバー行は非表示です。スクロールに加え、数字を入力してEnterを押すと指定ページへ移動できます。
 - **ファイルの場所が分かる。** タイトルは「ファイル名（フルパス）」です。下端のパス欄からも確認・コピーできます。
 - **PDFを開くアプリとして登録。** インストール時、または「設定 → PDF の関連付け」から、Windowsの「プログラムから開く」の候補に登録できます。
 - **日本語や空白を含むパスに対応。** 複数のPDFをまとめて渡せます。同名でも異なるフォルダーのPDFは別の文書として開きます。
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.2.1 Windows x64インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.1/SaruPDF-0.2.1-Setup-x64.exe)**
+**[SaruPDF v0.2.2 Windows x64インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.2/SaruPDF-0.2.2-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.2.1) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.1/SaruPDF-0.2.1-SHA256SUMS.txt) · [ソースからのビルド](docs/development.md)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.2.2) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.2/SaruPDF-0.2.2-SHA256SUMS.txt) · [ソースからのビルド](docs/development.md)
 
-1. `SaruPDF-0.2.1-Setup-x64.exe`をダウンロードし、**Windows 10 / 11 x64**で実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
+1. `SaruPDF-0.2.2-Setup-x64.exe`をダウンロードし、**Windows 10 / 11 x64**で実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtimeが必要です。** インストーラーには含まれません。不足している場合は、アプリが案内する[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）をインストールし、SaruPDFを再起動してください。.NET Runtimeは同梱しています。
 3. `.pdf`をダブルクリックで開きたい場合は、Windowsの既定アプリ設定でSaruPDFを選択します。完了画面の「PDF の関連付け設定を開く」から設定できます。
 
@@ -37,7 +37,7 @@ _SaruPDF v0.2.1の実画面。自動テストで生成した検証用PDFを表�
 
 1. スタートメニューの**SaruPDF**を起動します。
 2. **「PDF を開く」またはCtrl+O**でファイルを選びます。複数選択もできます。最初のPDFは、起動時の空ウィンドウに表示します。
-3. 文書をスクロールして読みます。別のPDFを開くと、新しいウィンドウに表示します。すでに開いているPDFなら、そのウィンドウへ移動します。
+3. 文書をスクロールして読みます。**数字を入力してEnter**でもページを移動できます。たとえば`12`→Enterで12ページ目へ移動します。入力中だけ右上に案内が出ます。Backspaceで修正、Escで取り消せます。別のPDFを開くと、新しいウィンドウに表示します。すでに開いているPDFなら、そのウィンドウへ移動します。
 4. **Ctrl+W**で現在のウィンドウだけを閉じます。ほかの文書は残り、最後のウィンドウを閉じるとアプリが終了します。
 
 PDFの右クリックから「プログラムから開く」→「別のプログラムを選択」→**SaruPDF**でも開けます。候補にない場合は、インストール先の`SaruPDF.exe`を指定してください。
@@ -55,6 +55,8 @@ PDFの右クリックから「プログラムから開く」→「別のプロ�
 | 操作 | キー |
 | --- | --- |
 | PDFを開く | Ctrl+O |
+| 指定ページへ移動 | 数字 → Enter（テンキーも使用可） |
+| ページ番号の修正／取り消し | Backspace / Esc |
 | 現在のウィンドウを閉じる | Ctrl+W / Alt+F4 |
 | ファイルメニュー | Alt+F |
 | 設定メニュー | Alt+S |
@@ -77,6 +79,7 @@ PDFの右クリックから「プログラムから開く」→「別のプロ�
 - **閲覧用です。** 本文の編集、ページの削除・並べ替え・結合、独自の注釈編集は未実装です。
 - 同じPDFかどうかは、正規化した完全パスで判定します。シンボリックリンク・ハードリンク・短縮名など、別名を経由した同一判定は未対応です。
 - 外部アプリが同じパスのPDFを置換しても、既存ウィンドウを優先します。最新版を表示するには、そのウィンドウを閉じて開き直してください。
+- 数字＋Enterのページ移動時はPDFを再表示します。ズームなどの表示状態や、総ページ数を超える番号の扱いはWebView2に依存します。
 - 文書の置き換えを防ぐため、表示領域への外部ドラッグ＆ドロップは無効です。破損・暗号化・特殊なPDF機能への対応はWebView2に依存します。
 - 通常権限での使用を前提とします。管理者権限と通常権限を混在させると、追加起動の引き継ぎができない場合があります。
 
@@ -89,6 +92,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-SDKやインストーラー用ツールの準備、配布用ビルド、GitHub Releasesへの掲載は[開発・ビルドガイド](docs/development.md)を参照してください。自動テストは26件で、単独・モーダル双方の関連付け画面の終了、文書管理、通信、タイトル、アイコンを検査します。
+SDKやインストーラー用ツールの準備、配布用ビルド、GitHub Releasesへの掲載は[開発・ビルドガイド](docs/development.md)を参照してください。自動テストは31件で、関連付け画面の終了、文書管理、通信、タイトル、アイコン、数字＋Enterによる実際のPDF描画ページの変化を検査します。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

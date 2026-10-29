@@ -24,8 +24,8 @@ SDK 未導入の場合は次を実行できます。Microsoft 公式 ZIP と公�
 GitHub で配布する場合は、ソースをコミット・push した後、`scripts/Publish-GitHubRelease.ps1` を実行します。WSL の GitHub CLI 認証が必要です。スクリプトは既存リリースの上書き、リポジトリの公開範囲の変更、コミットを自動で行いません。
 
 ```text
-artifacts/release/SaruPDF-0.2.1-win-x64/SaruPDF.exe
-artifacts/release/SaruPDF-0.2.1-Setup-x64.exe
+artifacts/release/SaruPDF-0.2.2-win-x64/SaruPDF.exe
+artifacts/release/SaruPDF-0.2.2-Setup-x64.exe
 ```
 
 NuGet は安定版 `Microsoft.Web.WebView2 1.0.4314.35` を完全固定し、`packages.lock.json` を保存しています。スクリプトは `--locked-mode` で復元します。SDK・パッケージキャッシュ・ビルド生成物・セットアップ EXE は Git 管理対象外です。依存を意図的に変更したときだけ `dotnet restore --force-evaluate` でロックを更新してください。
@@ -58,6 +58,10 @@ WebView2のキャッシュ等は、書き込み可能な `%LOCALAPPDATA%\SaruPDF
 
 ## 対応範囲・制限
 
+数字＋Enterによるページ移動は `Views/PageNumberInput.cs` と `PdfView.TryHandlePageKey` で処理します。WebView2 の `AllowHostInputProcessing` を有効にして通常の数字キーも受け取り、常設ツールバーを追加せず一時的な案内だけを表示します。テンキー、Backspace、Escに対応し、ウィンドウの非アクティブ化で入力を取り消します。修飾キー付きの入力はこの処理で消費しません。
+
+組み込みPDFビューアーは読み込み後のフラグメントだけの変更をページ移動として扱わないため、移動ごとに一意なクエリーを付けた同じファイルURIへナビゲートし、`toolbar=0&page=<番号>` を指定します。再表示時のズームなどはWebView2に依存します。総ページ数を解析しての上限検査は行いません。
+
 - 同一性は `Path.GetFullPath` と大文字小文字を無視する完全パス比較です。`.` / `..` / 相対パス / 大文字小文字の差を吸収し、別フォルダーの同名 PDF は別扱いです。
 - シンボリックリンク・ハードリンク・ジャンクション・8.3 短縮名・ドライブ文字と UNC 名の別名を跨ぐ同一判定は未対応です。ファイル ID はキャッシュしません。外部アプリが同じパスのファイルを置換しても、そのパスの既存ウィンドウを優先します。最新版を表示するには一度閉じて再度開いてください。大文字小文字を区別する特殊なディレクトリは対象外です。
 - PDF 本文の編集・ページ操作・独自注釈 UI は未実装です。WebView2 が提供する UI は Runtime の版に依存します。
@@ -69,7 +73,7 @@ WebView2のキャッシュ等は、書き込み可能な `%LOCALAPPDATA%\SaruPDF
 
 ## 確認
 
-`scripts/Test.ps1`: **26 件成功**。既存の文書・ウィンドウ・通信の 15 件に、関連付けの引用符、候補登録、既定値保持、解除、他コピーの登録保持、繰り返し実行、CLI／設定 URI の検査を追加しました。さらに単独／モーダルの閉じるボタン、タイトル、赤いアイコンの 4 件を追加しています。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際の PDF 関連付けは変更しません。
+`scripts/Test.ps1`: **31 件成功**。既存の文書・通信・関連付け・UIの26件に、ページ番号入力の4件とWebView2描画の1件を追加しています。描画試験は12ページの色付きPDFを生成し、画面外の非アクティブなフォームと専用ブラウザープロファイルで、2→3→12→1ページの中心画素を検査します。Escと0入力でページが変わらないことも確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際の PDF 関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
 
 `scripts/Test-Installer.ps1` は生成したセットアップを作業フォルダー内の専用ディレクトリにサイレント導入・更新・削除し、候補登録や既定設定・ユーザーファイル保持を検証します。**これは現在のユーザーに一時的な SaruPDF 登録とスタートメニューを作る試験です。** 既存の SaruPDF 登録がある場合は上書きせず停止します。結果は検証記録を参照してください。
 
