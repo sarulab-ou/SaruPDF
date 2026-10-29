@@ -45,6 +45,8 @@ internal sealed class PdfView : UserControl
             core.Settings.IsWebMessageEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
+            core.Settings.HiddenPdfToolbarItems = Enum.GetValues<CoreWebView2PdfToolbarItems>()
+                .Aggregate(CoreWebView2PdfToolbarItems.None, (all, item) => all | item);
             core.NavigationStarting += NavigationStarting;
             core.NewWindowRequested += (_, e) =>
             {
@@ -74,7 +76,8 @@ internal sealed class PdfView : UserControl
                     else CloseRequested?.Invoke();
                 });
             };
-            core.Navigate(document.Uri.AbsoluteUri);
+            var uri = new UriBuilder(document.Uri) { Fragment = "toolbar=0" }.Uri;
+            core.Navigate(uri.AbsoluteUri);
         }
         catch (Exception ex) when (IsDisposed || Disposing) { _ = ex; }
         catch (WebView2RuntimeNotFoundException)

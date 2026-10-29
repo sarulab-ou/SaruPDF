@@ -26,6 +26,8 @@ VIAddVersionKey /LANG=1041 "FileVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey /LANG=1041 "LegalCopyright" "SaruPDF"
 
 !define MUI_ABORTWARNING
+!define MUI_ICON "../assets/SaruPDF.ico"
+!define MUI_UNICON "../assets/SaruPDF.ico"
 !define MUI_WELCOMEPAGE_TEXT "SaruPDF を現在のユーザー用にインストールします。$\r$\n$\r$\nPDF を開くアプリへの登録を選択できます。既定の PDF アプリにする場合は、インストール後に Windows の設定画面で SaruPDF を選択してください。$\r$\n$\r$\n更新する場合は、起動中の SaruPDF の全ウィンドウを閉じてください。"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_COMPONENTS

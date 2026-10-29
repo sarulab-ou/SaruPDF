@@ -1,18 +1,18 @@
-# SaruPDF 0.2.0
+# SaruPDF 0.2.1
 
 Windows 10 / 11（x64）用のシンプルな PDF Viewer です。C# / .NET 10 / Windows Forms と Microsoft Edge WebView2 の標準 PDF Viewer を使います。
 
 ## ダウンロード
 
-**[Windows x64 インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.0/SaruPDF-0.2.0-Setup-x64.exe)**
+**[Windows x64 インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.1/SaruPDF-0.2.1-Setup-x64.exe)**
 
-[最新リリースと変更内容](https://github.com/sarulab-ou/SaruPDF/releases/latest) · [SHA256](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.0/SaruPDF-0.2.0-SHA256SUMS.txt)
+[最新リリースと変更内容](https://github.com/sarulab-ou/SaruPDF/releases/latest) · [SHA256](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.1/SaruPDF-0.2.1-SHA256SUMS.txt)
 
 リポジトリが非公開の場合、ダウンロードには GitHub へのログインとリポジトリへのアクセス権が必要です。
 
 ## インストーラーと PDF の関連付け
 
-`artifacts/release/SaruPDF-0.2.0-Setup-x64.exe` を起動し、画面に従ってインストールしてください。既定の保存先は `%LOCALAPPDATA%\Programs\SaruPDF`、現在のユーザー専用で管理者権限は不要です。更新時は、SaruPDF の全ウィンドウを閉じてください。
+`artifacts/release/SaruPDF-0.2.1-Setup-x64.exe` を起動し、画面に従ってインストールしてください。既定の保存先は `%LOCALAPPDATA%\Programs\SaruPDF`、現在のユーザー専用で管理者権限は不要です。更新時は、SaruPDF の全ウィンドウを閉じてください。
 
 - 「PDF を開くアプリの候補に登録」を選ぶと、現在のユーザーの「プログラムから開く」と Windows の既定アプリ候補に **SaruPDF** を登録します。初期状態では選択されています。
 - 完了画面の「PDF の関連付け設定を開く」、スタートメニューの「SaruPDF → PDF の関連付け」、またはアプリの「設定 → PDF の関連付け」から、Windows の既定アプリ設定を開けます。そこで `.pdf` のアプリとして SaruPDF を選択すると、PDF のダブルクリックで起動できます。
@@ -38,7 +38,8 @@ Windows 10/11 の既定アプリは、Windows の選択画面で利用者が確�
 - 同じ PDF を再度開くと既存ウィンドウに移ります。ページやズームを変えるための再読み込みは行いません。最小化中なら復元します。
 - 引数なしで追加起動すると、最後にアクティブだったウィンドウに移ります。
 - `Ctrl+W` は現在のウィンドウだけを閉じます。最後のウィンドウを閉じるとアプリプロセスも終了します。
-- ページ移動・検索・ズーム・印刷・保存は WebView2 標準 PDF ツールバーを使います。パスはウィンドウ下端で確認・選択できます。
+- ページ番号などの PDF ツールバー行は非表示です。ページ移動はスクロールで行えます。タイトルは「ファイル名（フルパス）」で、パスはウィンドウ下端でも確認・選択できます。
+- EXE、ウィンドウ、インストーラーには RGB（255, 0, 0）の「PDF」アイコンを使用します。
 
 ## 実行時の依存関係
 
@@ -90,8 +91,8 @@ SDK 未導入の場合は次を実行できます。Microsoft 公式 ZIP と公�
 GitHub で配布する場合は、ソースをコミット・push した後、`scripts/Publish-GitHubRelease.ps1` を実行します。WSL の GitHub CLI 認証が必要です。スクリプトは既存リリースの上書き、リポジトリの公開範囲の変更、コミットを自動で行いません。
 
 ```text
-artifacts/release/SaruPDF-0.2.0-win-x64/SaruPDF.exe
-artifacts/release/SaruPDF-0.2.0-Setup-x64.exe
+artifacts/release/SaruPDF-0.2.1-win-x64/SaruPDF.exe
+artifacts/release/SaruPDF-0.2.1-Setup-x64.exe
 ```
 
 NuGet は安定版 `Microsoft.Web.WebView2 1.0.4314.35` を完全固定し、`packages.lock.json` を保存しています。スクリプトは `--locked-mode` で復元します。SDK・パッケージキャッシュ・ビルド生成物・セットアップ EXE は Git 管理対象外です。依存を意図的に変更したときだけ `dotnet restore --force-evaluate` でロックを更新してください。
@@ -121,7 +122,7 @@ NuGet は安定版 `Microsoft.Web.WebView2 1.0.4314.35` を完全固定し、`pa
 
 ## 確認
 
-`scripts/Test.ps1`: **22 件成功**。既存の文書・ウィンドウ・通信の 15 件に、関連付けの引用符、候補登録、既定値保持、解除、他コピーの登録保持、繰り返し実行、CLI／設定 URI の検査を追加しました。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際の PDF 関連付けは変更しません。
+`scripts/Test.ps1`: **26 件成功**。既存の文書・ウィンドウ・通信の 15 件に、関連付けの引用符、候補登録、既定値保持、解除、他コピーの登録保持、繰り返し実行、CLI／設定 URI の検査を追加しました。さらに単独／モーダルの閉じるボタン、タイトル、赤いアイコンの 4 件を追加しています。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際の PDF 関連付けは変更しません。
 
 `scripts/Test-Installer.ps1` は生成したセットアップを作業フォルダー内の専用ディレクトリにサイレント導入・更新・削除し、候補登録や既定設定・ユーザーファイル保持を検証します。**これは現在のユーザーに一時的な SaruPDF 登録とスタートメニューを作る試験です。** 既存の SaruPDF 登録がある場合は上書きせず停止します。結果は検証記録を参照してください。
 

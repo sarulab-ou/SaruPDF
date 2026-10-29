@@ -16,6 +16,7 @@ internal sealed class PdfAssociationDialog : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
+        AppIcon.Apply(this);
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(22), ColumnCount = 1, RowCount = 5 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
@@ -36,7 +37,9 @@ internal sealed class PdfAssociationDialog : Form
             PdfAssociation.OpenDefaultAppsSettings();
             status.Text = "Windows の画面で .pdf に SaruPDF を選択してください。\n候補に見つからない場合は設定画面を開き直してください。";
         });
-        var close = new Button { Text = "閉じる", Anchor = AnchorStyles.Right, AutoSize = true, MinimumSize = new Size(96, 34), DialogResult = DialogResult.Cancel };
+        var close = new Button { Name = "CloseButton", Text = "閉じる", Anchor = AnchorStyles.Right, AutoSize = true, MinimumSize = new Size(96, 34), DialogResult = DialogResult.Cancel };
+        // DialogResult closes ShowDialog(), but not a form used by Application.Run().
+        close.Click += (_, _) => Close();
         CancelButton = close;
         layout.Controls.Add(register, 0, 1);
         layout.Controls.Add(settings, 0, 2);

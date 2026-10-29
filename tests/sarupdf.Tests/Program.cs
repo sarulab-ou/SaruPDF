@@ -175,6 +175,7 @@ internal static class Program
         });
 
         foreach (var (name, run) in AssociationTests.Cases()) await Test(name, run);
+        foreach (var (name, run) in UiRegressionTests.Cases(a)) await Test(name, run);
         Console.WriteLine($"{passed} passed, {failed} failed. Samples: {root}");
         return failed == 0 ? 0 : 1;
     }

@@ -1,6 +1,10 @@
 #requires -Version 7.0
-param([string]$Installer = 'artifacts/release/SaruPDF-0.2.0-Setup-x64.exe')
+param([string]$Installer)
 . "$PSScriptRoot/Common.ps1"
+if ([string]::IsNullOrWhiteSpace($Installer)) {
+    [xml]$project = Get-Content (Join-Path $ProjectRoot 'src/sarupdf/sarupdf.csproj') -Raw
+    $Installer = "artifacts/release/SaruPDF-$($project.Project.PropertyGroup.Version)-Setup-x64.exe"
+}
 $installerPath = [System.IO.Path]::GetFullPath($Installer, $ProjectRoot)
 $testRoot = Join-Path $ProjectRoot 'artifacts/installer-smoke'
 $installPath = Join-Path $testRoot 'インストール 試験 #100% &'

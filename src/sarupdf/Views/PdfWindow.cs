@@ -24,7 +24,7 @@ internal sealed class PdfWindow : Form
         MinimumSize = new Size(560, 420);
         StartPosition = FormStartPosition.WindowsDefaultLocation;
         BackColor = Color.White;
-        Icon = SystemIcons.Application;
+        AppIcon.Apply(this);
         var menu = new MenuStrip { Padding = new Padding(8, 5, 8, 5), BackColor = Color.FromArgb(247, 248, 251) };
         var file = new ToolStripMenuItem("ファイル(&F)");
         file.DropDownItems.Add(new ToolStripMenuItem("PDF を開く(&O)…", null, (_, _) => SelectFiles()) { ShortcutKeys = Keys.Control | Keys.O });
@@ -68,7 +68,7 @@ internal sealed class PdfWindow : Form
     public void SetDocument(PdfDocument document)
     {
         if (viewer is not null) throw new InvalidOperationException("このウィンドウには既に PDF が割り当てられています。");
-        Text = $"{document.FileName} — SaruPDF";
+        Text = $"{document.FileName}（{document.Path}）";
         pathBox.Text = document.Path;
         foreach (Control child in content.Controls) child.Dispose();
         content.Controls.Clear();
