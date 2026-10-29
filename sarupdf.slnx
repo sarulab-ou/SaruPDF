@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/sarupdf/sarupdf.csproj" />
+  <Project Path="tests/sarupdf.Tests/sarupdf.Tests.csproj" />
+</Solution>
