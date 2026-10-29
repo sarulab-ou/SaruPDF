@@ -47,7 +47,7 @@ try {
     & wsl.exe bash -lc $command
     if ($LASTEXITCODE -ne 0) { throw 'インストーラーのコンパイルに失敗しました。' }
     Get-FileHash -LiteralPath (Join-Path $output "SaruPDF-$version-Setup-x64.exe") -Algorithm SHA256 | Format-List
-    $checksums = @("SaruPDF-$version-Setup-x64.exe", "SaruPDF-$version-win-x64.zip") | ForEach-Object {
+    [string[]]$checksums = @("SaruPDF-$version-Setup-x64.exe") | ForEach-Object {
         $hash = Get-FileHash -LiteralPath (Join-Path $output $_) -Algorithm SHA256
         $hash.Hash.ToLowerInvariant() + '  ' + $_
     }

@@ -6,13 +6,13 @@ Windows 10 / 11（x64）用のシンプルな PDF Viewer です。C# / .NET 10 /
 
 **[Windows x64 インストーラーをダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.0/SaruPDF-0.2.0-Setup-x64.exe)**
 
-[最新リリースと変更内容](https://github.com/sarulab-ou/SaruPDF/releases/latest) · [ポータブル ZIP](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.0/SaruPDF-0.2.0-win-x64.zip) · [SHA256](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.0/SaruPDF-0.2.0-SHA256SUMS.txt)
+[最新リリースと変更内容](https://github.com/sarulab-ou/SaruPDF/releases/latest) · [SHA256](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.2.0/SaruPDF-0.2.0-SHA256SUMS.txt)
 
 リポジトリが非公開の場合、ダウンロードには GitHub へのログインとリポジトリへのアクセス権が必要です。
 
 ## インストーラーと PDF の関連付け
 
-`artifacts/release/SaruPDF-0.2.0-Setup-x64.exe` を起動し、画面に従ってインストールしてください。既定の保存先は `%LOCALAPPDATA%\Programs\SaruPDF`、現在のユーザー専用で管理者権限は不要です。更新時は、ポータブル版を含む SaruPDF の全ウィンドウを閉じてください。
+`artifacts/release/SaruPDF-0.2.0-Setup-x64.exe` を起動し、画面に従ってインストールしてください。既定の保存先は `%LOCALAPPDATA%\Programs\SaruPDF`、現在のユーザー専用で管理者権限は不要です。更新時は、SaruPDF の全ウィンドウを閉じてください。
 
 - 「PDF を開くアプリの候補に登録」を選ぶと、現在のユーザーの「プログラムから開く」と Windows の既定アプリ候補に **SaruPDF** を登録します。初期状態では選択されています。
 - 完了画面の「PDF の関連付け設定を開く」、スタートメニューの「SaruPDF → PDF の関連付け」、またはアプリの「設定 → PDF の関連付け」から、Windows の既定アプリ設定を開けます。そこで `.pdf` のアプリとして SaruPDF を選択すると、PDF のダブルクリックで起動できます。
@@ -22,9 +22,9 @@ Windows 10 / 11（x64）用のシンプルな PDF Viewer です。C# / .NET 10 /
 
 Windows 10/11 の既定アプリは、Windows の選択画面で利用者が確定します。インストーラーは既存の `.pdf` の既定値や `UserChoice` を書き換えません。アンインストール前に SaruPDF を既定にしていた場合は、Windows の画面で次の PDF アプリを選んでください。
 
-## ポータブル版の起動
+## 起動
 
-配布 ZIP `artifacts/release/SaruPDF-0.2.0-win-x64.zip` を任意のフォルダーに展開し、`SaruPDF.exe` を実行します。**EXE だけを取り出さず、DLL などを含むフォルダー全体を保持**してください。ポータブル版はインストール不要です。
+スタートメニューの「SaruPDF」、またはインストール先の `SaruPDF.exe` を起動します。コマンドで PDF を開くこともできます。以下はインストール先をカレントディレクトリにした場合の例です。
 
 ```powershell
 .\SaruPDF.exe
@@ -42,7 +42,7 @@ Windows 10/11 の既定アプリは、Windows の選択画面で利用者が確�
 
 ## 実行時の依存関係
 
-配布 ZIP は **self-contained / win-x64** で、.NET / Windows Desktop Runtime を同梱します。.NET の追加インストールは不要です。
+インストーラーには **self-contained / win-x64** のアプリと .NET / Windows Desktop Runtime を同梱します。.NET の追加インストールは不要です。
 
 **WebView2 Runtime は .NET とは別です。** PC に Evergreen WebView2 Runtime が必要です。不足している場合はアプリ内に案内を表示します。[Microsoft 公式ダウンロード](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)から Evergreen Runtime（x64）をインストールし、SaruPDF の全ウィンドウを閉じて再起動してください。
 
@@ -52,11 +52,11 @@ WebView2 のキャッシュ等は、書き込み可能な `%LOCALAPPDATA%\SaruPD
 
 ## Explorer の「プログラムから開く」
 
-1. ZIP を恒久的に使うフォルダーに展開します。
+1. インストーラーで SaruPDF をインストールします。
 2. PDF を右クリックし、「プログラムから開く」→「別のプログラムを選択」を選びます。
-3. 「PC でアプリを選択」等から、展開先の `SaruPDF.exe` を指定します（名称は Windows の版で異なります）。
+3. SaruPDF を選択するか、「PC でアプリを選択」等からインストール先の `SaruPDF.exe` を指定します（名称は Windows の版で異なります）。
 
-既定にする場合は、Windows の「設定」→「アプリ」→「既定のアプリ」で `.pdf` のアプリを選択するか、上記の選択画面で「常に使う」を選択します。ポータブル版も「設定 → PDF の関連付け」から候補登録できます。登録後に実行ファイルを移動した場合は、移動先で再登録してください。
+既定にする場合は、Windows の「設定」→「アプリ」→「既定のアプリ」で `.pdf` のアプリを選択するか、上記の選択画面で「常に使う」を選択します。アプリの「設定 → PDF の関連付け」からも候補登録と Windows 設定への移動ができます。
 
 候補登録だけを行うコマンドもあります。これらは実行時の現在のユーザーに作用し、PDF ウィンドウは開きません。通常起動やビルドのみでは登録しません。
 
@@ -81,7 +81,7 @@ SDK 未導入の場合は次を実行できます。Microsoft 公式 ZIP と公�
 .\scripts\Build-Installer.ps1
 ```
 
-`Build.ps1` は Release ビルド、`Test.ps1` は自作のコンソール型テストランナー、`Publish.ps1` は self-contained フォルダーと ZIP を作成します。PowerShell の実行ポリシーでスクリプトが禁止されている環境では、組織のポリシーに従って実行してください。
+`Build.ps1` は Release ビルド、`Test.ps1` は自作のコンソール型テストランナー、`Publish.ps1` は インストーラーの入力となる self-contained フォルダーを作成します。PowerShell の実行ポリシーでスクリプトが禁止されている環境では、組織のポリシーに従って実行してください。
 
 出力先を変える場合は `scripts/Publish.ps1 -OutputRoot artifacts/release` のように指定できます。`Build-Installer.ps1` は既定でこの場所に publish と NSIS コンパイルを行います。既存の配布物を使う場合は `-SkipPublish` を付けます。
 
@@ -91,11 +91,10 @@ GitHub で配布する場合は、ソースをコミット・push した後、`s
 
 ```text
 artifacts/release/SaruPDF-0.2.0-win-x64/SaruPDF.exe
-artifacts/release/SaruPDF-0.2.0-win-x64.zip
 artifacts/release/SaruPDF-0.2.0-Setup-x64.exe
 ```
 
-NuGet は安定版 `Microsoft.Web.WebView2 1.0.4314.35` を完全固定し、`packages.lock.json` を保存しています。スクリプトは `--locked-mode` で復元します。SDK・パッケージキャッシュ・ビルド生成物・配布 ZIP は Git 管理対象外です。依存を意図的に変更したときだけ `dotnet restore --force-evaluate` でロックを更新してください。
+NuGet は安定版 `Microsoft.Web.WebView2 1.0.4314.35` を完全固定し、`packages.lock.json` を保存しています。スクリプトは `--locked-mode` で復元します。SDK・パッケージキャッシュ・ビルド生成物・セットアップ EXE は Git 管理対象外です。依存を意図的に変更したときだけ `dotnet restore --force-evaluate` でロックを更新してください。
 
 ## 構成と多重起動
 
