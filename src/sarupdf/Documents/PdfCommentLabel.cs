@@ -6,7 +6,7 @@ namespace SaruPdf.Documents;
 // Coordinates and vector glyph outlines are in displayed page units, top down.
 internal sealed class PdfCommentLabel : IDisposable
 {
-    internal const float FontSize = 11;
+    internal const float FontSize = 10;
     private static readonly Lazy<string> fontFamilyName = new(FindFontFamily);
     internal static string FontFamilyName => fontFamilyName.Value;
     internal RectangleF Bounds { get; }
@@ -20,7 +20,10 @@ internal sealed class PdfCommentLabel : IDisposable
         Page = page;
         var target = page.Rectangle(quads[0]);
         float margin = Math.Min(6, (float)Math.Min(page.Width, page.Height) / 20);
-        float maxWidth = Math.Max(1, Math.Min(280, (float)page.Width - margin * 2));
+        // Keep the first glyph at the start of the highlight and wrap into the
+        // remaining page width. At the extreme edge reserve room for one glyph.
+        float left = Math.Clamp(target.Left * (float)page.Width, 0, Math.Max(0, (float)page.Width - FontSize * 1.5f));
+        float maxWidth = Math.Max(1, (float)page.Width - left);
         float maxHeight = Math.Max(1, Math.Min(200, (float)page.Height - margin * 2));
         using var family = new FontFamily(FontFamilyName);
         using var font = new Font(family, FontSize, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -30,19 +33,26 @@ internal sealed class PdfCommentLabel : IDisposable
         format.FormatFlags |= StringFormatFlags.LineLimit;
         format.Trimming = StringTrimming.EllipsisCharacter;
         text = text.ReplaceLineEndings("\n");
-        var measured = graphics.MeasureString(text, font, new SizeF(Math.Max(1, maxWidth - 4), 100000), format);
-        float width = Math.Min(maxWidth, Math.Max(16, (float)Math.Ceiling(measured.Width) + 4));
-        float height = Math.Min(maxHeight, Math.Max(16, (float)Math.Ceiling(measured.Height) + 2));
-        float left = Math.Clamp(target.Left * (float)page.Width + 1, margin, Math.Max(margin, (float)page.Width - width - margin));
+        var measured = graphics.MeasureString(text, font, new SizeF(Math.Max(1, maxWidth - 2), 100000), format);
+        float width = Math.Min(maxWidth, Math.Max(FontSize, (float)Math.Ceiling(measured.Width) + 2));
+        float lineHeight = font.GetHeight(graphics);
+        // MeasureString may report only the Latin glyph ink height. AddString's
+        // LineLimit needs complete font lines, otherwise English can draw nothing.
+        float height = Math.Min(maxHeight, Math.Max(lineHeight + 2,
+            (float)Math.Ceiling(measured.Height / lineHeight) * lineHeight + 2));
         float overlap = Math.Min(6, target.Height * (float)page.Height * .5f);
         float top = Math.Clamp(target.Top * (float)page.Height - height + overlap, margin,
             Math.Max(margin, (float)page.Height - height - margin));
         Bounds = new(left, top, width, height);
         Outline = new GraphicsPath();
-        try { Outline.AddString(text, family, (int)FontStyle.Regular, FontSize, new RectangleF(2, 0, Math.Max(1, width - 4), height), format); }
+        try { Outline.AddString(text, family, (int)FontStyle.Regular, FontSize, new RectangleF(0, 0, Math.Max(1, width - 2), height), format); }
         catch { Outline.Dispose(); throw; }
         if (Outline.PointCount > 0)
         {
+            // Glyph side bearings vary by font; align the visible ink itself.
+            using var align = new Matrix();
+            align.Translate(-Outline.GetBounds().Left, 0);
+            Outline.Transform(align);
             // Align the actual glyph ink, rather than the font's descent space,
             // so the red letters themselves overlap the highlight slightly.
             float inkBottom = Outline.GetBounds().Bottom;

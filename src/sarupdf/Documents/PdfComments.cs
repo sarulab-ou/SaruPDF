@@ -13,11 +13,58 @@ internal sealed record PdfCommentQuad(PdfPointValue BottomLeft, PdfPointValue Bo
     internal IEnumerable<PdfPointValue> Points => [BottomLeft, BottomRight, TopRight, TopLeft];
 }
 internal sealed record PdfCommentRegion(int Page, IReadOnlyList<PdfCommentQuad> Quads);
-internal sealed record PdfCommentMark(Guid Id, int PageId, string Text, IReadOnlyList<PdfCommentQuad> Quads, DateTime Created);
+internal sealed record PdfCommentMark(Guid Id, int PageId, string Text, IReadOnlyList<PdfCommentQuad> Quads, DateTime Created, DateTime? Modified = null);
 
 internal static class PdfComments
 {
     private sealed class StoredAnnotation(SharpDocument document) : PdfAnnotation(document);
+
+    internal static List<PdfCommentMark> ReadManaged(SharpDocument document)
+    {
+        List<PdfCommentMark> comments = [];
+        for (int p = 0; p < document.PageCount; p++)
+        {
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (PdfAnnotation item in document.Pages[p].Annotations)
+            if (item.Elements.GetName("/Subtype") == "/FreeText" && item.Elements.GetString("/T") == "SaruPDF")
+                labels[item.Elements.GetString("/NM")] = item.Elements.GetString("/Contents");
+        for (int a = 0; a < document.Pages[p].Annotations.Count; a++)
+        {
+            var annotation = document.Pages[p].Annotations[a];
+            if (annotation.Elements.GetName("/Subtype") != "/Highlight" || annotation.Elements.GetString("/T") != "SaruPDF" ||
+                !Guid.TryParse(annotation.Elements.GetString("/NM"), out var id) || annotation.Elements.GetArray("/QuadPoints") is not { } values) continue;
+            static double Number(PdfItem item) => item switch { PdfReal real => real.Value, PdfInteger integer => integer.Value, _ => double.NaN };
+            List<PdfCommentQuad> quads = [];
+            for (int q = 0; q + 7 < values.Elements.Count; q += 8)
+            {
+                PdfPointValue Point(int index) => new(Number(values.Elements[q + index * 2]), Number(values.Elements[q + index * 2 + 1]));
+                var quad = new PdfCommentQuad(Point(0), Point(1), Point(2), Point(3));
+                if (quad.Points.All(point => double.IsFinite(point.X) && double.IsFinite(point.Y))) quads.Add(quad);
+            }
+            if (quads.Count == 0) continue;
+            DateTime created;
+            try { created = annotation.Elements.GetDateTime("/CreationDate", DateTime.UtcNow); }
+            catch (FormatException) { created = DateTime.UtcNow; }
+            string text = annotation.Elements.GetString("/Contents");
+            if (text.Length == 0 && labels.TryGetValue(id.ToString("D") + "-label", out var labelText)) text = labelText;
+            comments.Add(new(id, p, text, quads.AsReadOnly(), created));
+        }
+        }
+        return comments;
+    }
+
+    internal static void RemoveManaged(SharpDocument document, IReadOnlySet<Guid> ids)
+    {
+        bool Matches(string name) => Guid.TryParse(name.EndsWith("-label", StringComparison.Ordinal) ? name[..^6] : name, out var id) && ids.Contains(id);
+        foreach (PdfPage page in document.Pages)
+        for (int i = page.Annotations.Count - 1; i >= 0; i--)
+        {
+            var annotation = page.Annotations[i];
+            var parent = annotation.Elements.GetReference("/Parent")?.Value as PdfDictionary;
+            if (Matches(annotation.Elements.GetString("/NM")) || (parent is not null && Matches(parent.Elements.GetString("/NM"))))
+                page.Annotations.Elements.RemoveAt(i);
+        }
+    }
 
     internal static void Write(SharpDocument document, PdfPage page, PdfCommentMark mark)
     {
@@ -26,10 +73,9 @@ internal static class PdfComments
         var annotation = new StoredAnnotation(document);
         annotation.Elements.SetName("/Subtype", "/Highlight");
         annotation.Elements.SetRectangle("/Rect", new PdfRectangle(new PdfSharp.Drawing.XPoint(left, bottom), new PdfSharp.Drawing.XPoint(right, top)));
-        annotation.Elements["/Contents"] = new PdfString(mark.Text.ReplaceLineEndings("\r"), PdfStringEncoding.Unicode);
         annotation.Elements.SetString("/T", "SaruPDF");
         annotation.Elements.SetString("/NM", mark.Id.ToString("D"));
-        annotation.Elements.SetDateTime("/M", mark.Created);
+        annotation.Elements.SetDateTime("/M", mark.Modified ?? mark.Created);
         annotation.Elements.SetDateTime("/CreationDate", mark.Created);
         annotation.Elements.SetInteger("/F", 4); // Print; comments remain editable annotations.
         annotation.Elements.SetReal("/CA", .35);
@@ -61,13 +107,8 @@ internal static class PdfComments
         var appearances = new PdfDictionary(document); appearances.Elements["/N"] = appearance.Reference!;
         annotation.Elements["/AP"] = appearances;
 
-        var popup = new StoredAnnotation(document);
-        popup.Elements.SetName("/Subtype", "/Popup");
-        popup.Elements.SetRectangle("/Rect", new PdfRectangle(new PdfSharp.Drawing.XPoint(right + 8, bottom), new PdfSharp.Drawing.XPoint(right + 248, bottom + 140)));
-        popup.Elements.SetBoolean("/Open", false);
-        popup.Elements["/Parent"] = annotation.Reference!;
-        page.Annotations.Add(popup); popup.Elements["/P"] = page.Reference!;
-        annotation.Elements["/Popup"] = popup.Reference!;
+        // Keep the text in the grouped FreeText annotation. A highlight with
+        // Contents causes WebView2 to add a speech-bubble icon over the text.
         WriteLabel(document, page, annotation, mark);
     }
 
@@ -81,10 +122,10 @@ internal static class PdfComments
         annotation.Elements.SetName("/Subtype", "/FreeText");
         annotation.Elements.SetRectangle("/Rect", new PdfRectangle(new PdfSharp.Drawing.XPoint(left, bottom), new PdfSharp.Drawing.XPoint(right, top)));
         annotation.Elements["/Contents"] = new PdfString(mark.Text.ReplaceLineEndings("\r"), PdfStringEncoding.Unicode);
-        annotation.Elements.SetString("/DA", "1 0 0 rg /Helv 11 Tf");
+        annotation.Elements.SetString("/DA", "1 0 0 rg /Helv 10 Tf");
         annotation.Elements.SetString("/T", "SaruPDF");
         annotation.Elements.SetString("/NM", mark.Id.ToString("D") + "-label");
-        annotation.Elements.SetDateTime("/M", mark.Created); annotation.Elements.SetDateTime("/CreationDate", mark.Created);
+        annotation.Elements.SetDateTime("/M", mark.Modified ?? mark.Created); annotation.Elements.SetDateTime("/CreationDate", mark.Created);
         annotation.Elements.SetInteger("/F", 4); annotation.Elements.SetInteger("/Q", 0);
         annotation.Elements["/Border"] = Numbers(document, [0, 0, 0]);
         annotation.Elements["/C"] = Numbers(document, []); // Transparent background; red belongs to DA/AP.

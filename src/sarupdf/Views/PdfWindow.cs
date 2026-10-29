@@ -22,6 +22,7 @@ internal sealed class PdfWindow : Form
     private int? appliedTitleMode;
     private PdfEditSession? ActiveSession => editor?.Session ?? commentEditor?.Session;
     private readonly ToolStripMenuItem editMode = new("ページ操作モード(&M)") { Name = "EditMode", Enabled = false };
+    private readonly ToolStripMenuItem viewMode = new("Viewモード(&V)") { Name = "ViewMode", Checked = true };
     private readonly ToolStripMenuItem commentMode = new("コメントモード(&C)") { Name = "CommentMode", Enabled = false };
     private readonly ToolStripMenuItem cutPage = new("ページを切り取り(&T)") { ShortcutKeys = Keys.Control | Keys.X, Enabled = false };
     private readonly ToolStripMenuItem copyPage = new("ページをコピー(&C)") { ShortcutKeys = Keys.Control | Keys.C, Enabled = false };
@@ -58,9 +59,10 @@ internal sealed class PdfWindow : Form
         file.DropDownItems.Add(new ToolStripMenuItem("このウィンドウを閉じる(&W)", null, (_, _) => Close()) { ShortcutKeys = Keys.Control | Keys.W });
         menu.Items.Add(file);
         var edit = new ToolStripMenuItem("編集(&E)");
-        edit.DropDownItems.AddRange([editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
-        editMode.Click += (_, _) => ToggleEditMode();
-        commentMode.Click += (_, _) => ToggleCommentMode();
+        edit.DropDownItems.AddRange([viewMode, editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
+        viewMode.Click += (_, _) => { if (editor is not null) ToggleEditMode(); else if (commentEditor is not null) ToggleCommentMode(); };
+        editMode.Click += (_, _) => { if (editor is null) ToggleEditMode(); };
+        commentMode.Click += (_, _) => { if (commentEditor is null) ToggleCommentMode(); };
         cutPage.Click += (_, _) => editor?.Cut();
         copyPage.Click += (_, _) => editor?.Copy();
         pastePage.Click += (_, _) => editor?.Paste();
@@ -262,6 +264,7 @@ internal sealed class PdfWindow : Form
     {
         editMode.Checked = editor is not null;
         commentMode.Checked = commentEditor is not null;
+        viewMode.Checked = editor is null && commentEditor is null;
         UpdateTitleBar();
         cutPage.Enabled = editor?.CanCut == true;
         copyPage.Enabled = editor?.CanCopy == true;

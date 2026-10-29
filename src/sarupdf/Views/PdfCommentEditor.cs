@@ -24,6 +24,12 @@ internal sealed class PdfCommentEditor : UserControl
             if (IsDisposed) return;
             using var dialog = new PdfCommentDialog("PDFの注釈", text); dialog.ShowDialog(this);
         });
+        Viewer.EditCommentRequested += mark => BeginInvoke(() =>
+        {
+            if (IsDisposed || Session.Comments.FirstOrDefault(c => c.Id == mark.Id) is not { } current) return;
+            using var dialog = new PdfCommentDialog("PDFのコメント", current.Text, editable: true);
+            if (dialog.ShowDialog(this) == DialogResult.OK) UpdateComment(current.Id, dialog.CommentText);
+        });
         Viewer.Failed += ex => Failed?.Invoke(ex);
         Viewer.CommandFailed += ex => Failed?.Invoke(ex);
     }
@@ -31,11 +37,11 @@ internal sealed class PdfCommentEditor : UserControl
     {
         try
         {
-            string snapshot = Session.WriteOriginalPreview();
+            string snapshot = Session.WriteCommentPreview();
             var map = await Task.Run(() => PdfTextMap.Read(snapshot));
             if (IsDisposed) return;
             Viewer.InheritView(state);
-            await Viewer.LoadSourcesAsync(Session.RenderPages());
+            await Viewer.LoadAsync(snapshot);
             if (IsDisposed) return;
             Viewer.SetTextMap(map); UpdateState();
         }
@@ -48,6 +54,7 @@ internal sealed class PdfCommentEditor : UserControl
         selection.Set(selection.Caret, false);
     });
     internal void Undo() => Execute(() => Session.Undo());
+    internal void UpdateComment(Guid id, string text) => Execute(() => Session.UpdateComment(id, text));
     internal void Redo() => Execute(() => Session.Redo());
     internal void UpdateState() { Viewer.UpdateComments(Session.Comments); StateChanged?.Invoke(); }
     private void Execute(Action action)

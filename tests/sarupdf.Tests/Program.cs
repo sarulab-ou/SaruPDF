@@ -192,6 +192,8 @@ internal static class Program
         await Test("current page stays centered and has a different visual marker from selected pages", () => PageOperationTests.VerifyCurrentPageAsync(root));
         foreach (var (name, run) in PdfCommentTests.Cases(root)) await Test(name, run);
         await Test("comment mode caret, Enter dialog, undo, save and independent highlight rendering", () => PdfCommentTests.VerifyUiAsync(root));
+        await Test("English and Japanese comments remain red in the normal WebView2 PDF viewer", () => PdfCommentTests.VerifyBrowserAsync(root));
+        await Test("drag selection, right-click add, saved comment editing and explicit modes", () => PdfCommentTests.VerifyDragEditModesAsync(root));
         Console.WriteLine($"{passed} passed, {failed} failed. Samples: {root}");
         return failed == 0 ? 0 : 1;
     }

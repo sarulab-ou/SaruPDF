@@ -275,7 +275,8 @@ internal static class PdfEditingTests
         Check(Key(Keys.Control | Keys.S));
         await WaitUntilAsync(() => !editor.Session.IsDirty);
         using (var check = PdfReader.Open(pdf, PdfDocumentOpenMode.Import)) Check(check.PageCount == 12);
-        editMode.PerformClick(); Check(!editMode.Checked);
+        window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "編集(&E)")
+            .DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "ViewMode").PerformClick(); Check(!editMode.Checked);
         var viewer = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
         var readWeb = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
         await WaitUntilAsync(() => readWeb.CoreWebView2 is not null && readWeb.Source?.IsFile == true);

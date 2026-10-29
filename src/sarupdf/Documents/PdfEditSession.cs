@@ -20,7 +20,8 @@ internal sealed class PdfEditSession : IDisposable
     private byte[] savedHash;
     private int[] cut = [];
     private readonly List<PdfCommentMark> comments = [];
-    private Guid[] savedComments = [];
+    private PdfCommentMark[] savedComments = [];
+    private readonly HashSet<Guid> originalCommentIds = [];
     internal IReadOnlyList<PdfCommentMark> Comments => comments.AsReadOnly();
 
     internal string SourcePath { get; private set; }
@@ -30,7 +31,7 @@ internal sealed class PdfEditSession : IDisposable
     internal int? CutPage => cut.Length == 0 ? null : cut[0];
     internal IReadOnlyList<int> CutPages => Array.AsReadOnly(cut);
     internal bool HasPendingCut => cut.Length != 0;
-    internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages) || !comments.Select(c => c.Id).SequenceEqual(savedComments);
+    internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages) || !comments.SequenceEqual(savedComments);
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
 
@@ -50,6 +51,9 @@ internal sealed class PdfEditSession : IDisposable
         if (TotalPages == 0) throw new InvalidDataException("編集できるページがありません。");
         pages = [.. Enumerable.Range(0, TotalPages)];
         savedPages = [.. pages];
+        comments.AddRange(PdfComments.ReadManaged(pdf));
+        originalCommentIds.UnionWith(comments.Select(comment => comment.Id));
+        savedComments = [.. comments];
     }
 
     internal void Cut(int index) => Cut([index]);
@@ -138,6 +142,15 @@ internal sealed class PdfEditSession : IDisposable
             comments.Add(new PdfCommentMark(Guid.NewGuid(), pages[region.Page], text,
                 Array.AsReadOnly(region.Quads.ToArray()), DateTime.UtcNow));
     }
+    internal void UpdateComment(Guid id, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("コメントを入力してください。", nameof(text));
+        int index = comments.FindIndex(comment => comment.Id == id);
+        if (index < 0) throw new ArgumentException("コメントが見つかりません。", nameof(id));
+        text = text.ReplaceLineEndings("\r");
+        if (comments[index].Text.ReplaceLineEndings("\r") == text) return;
+        Remember(); comments[index] = comments[index] with { Text = text, Modified = DateTime.UtcNow };
+    }
     private State Snapshot() => new([.. pages], [.. cut], [.. comments]);
     private void Remember() { undo.Push(Snapshot()); redo.Clear(); }
     private bool Restore(Stack<State> from, Stack<State> to)
@@ -166,6 +179,17 @@ internal sealed class PdfEditSession : IDisposable
         if (!File.Exists(path)) { File.WriteAllBytes(path, original); previews.Add(path); }
         return path;
     }
+    internal string WriteCommentPreview()
+    {
+        if (originalCommentIds.Count == 0) return WriteOriginalPreview();
+        Directory.CreateDirectory(previewDirectory);
+        string path = Path.Combine(previewDirectory, "comment-base.pdf");
+        if (File.Exists(path)) return path;
+        using var input = new MemoryStream(original, false);
+        using var pdf = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
+        PdfComments.RemoveManaged(pdf, originalCommentIds);
+        previews.Add(path); pdf.Save(path); return path;
+    }
 
     internal IReadOnlyList<PdfRenderPage> RenderPages()
     {
@@ -192,6 +216,7 @@ internal sealed class PdfEditSession : IDisposable
     {
         using var input = new MemoryStream(original, false);
         using var pdf = TotalPages == 0 ? new PdfSharp.Pdf.PdfDocument() : PdfReader.Open(input, PdfDocumentOpenMode.Modify);
+        PdfComments.RemoveManaged(pdf, originalCommentIds);
         // Move the original page references in place, preserving their catalog
         // links. Remove/Add re-registers existing objects in PDFsharp 6.2.4.
         List<int> current = [.. Enumerable.Range(0, TotalPages)];
@@ -262,7 +287,7 @@ internal sealed class PdfEditSession : IDisposable
         SourcePath = target;
         savedHash = SHA256.HashData(result);
         savedPages = [.. pages];
-        savedComments = comments.Select(comment => comment.Id).ToArray();
+        savedComments = [.. comments];
     }
 
     public void Dispose()

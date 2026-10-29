@@ -1,4 +1,6 @@
 using System.Reflection;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
 using SaruPdf.Documents;
@@ -59,7 +61,7 @@ internal static class PdfCommentTests
             selection.Move(Keys.PageUp, false); Check(selection.Current?.Page == 0);
             var empty = new PdfCaretSelection(new PdfTextMap()); empty.Move(Keys.Right, true); Check(!empty.HasSelection);
         });
-        yield return ("Unicode comments save as standard Highlight/Popup with quads, appearance and parent links", () =>
+        yield return ("Unicode comments save as standard Highlight/FreeText without a speech-bubble marker", () =>
         {
             string original = Fixture("Standard comment"), saved = Path.Combine(root, "standard-comments.pdf");
             byte[] before = File.ReadAllBytes(original);
@@ -72,18 +74,18 @@ internal static class PdfCommentTests
             session.Undo(); Check(session.IsDirty && session.Comments.Count == 0);
             session.Redo(); Check(!session.IsDirty && session.Comments.Count == 1);
             var read = PdfTextMap.Read(saved);
-            Check(read.ExistingComments.Count == 2 && read.ExistingComments.All(c => c.Text == "日本語のコメント\r2行目です 🐵"));
+            Check(read.ExistingComments.Count == 1 && read.ExistingComments.All(c => c.Text == "日本語のコメント\r2行目です 🐵"));
         });
         yield return ("multi-page comments undo atomically and retain their page after a page move", () =>
         {
-            string original = Fixture("Multi comment"), saved = Path.Combine(root, "multi-comments.pdf");
+            string original = Fixture("Multi comment"), saved = Path.Combine(root, "multi-comments-" + Guid.NewGuid().ToString("N") + ".pdf");
             var selection = new PdfCaretSelection(PdfTextMap.Read(original)); selection.SelectAll();
             using var session = new PdfEditSession(original);
             session.AddComment(selection.Regions(), "Across pages"); Check(session.Comments.Count == 3);
             session.Undo(); Check(!session.IsDirty && session.Comments.Count == 0);
             session.Redo(); session.Cut(0); session.Paste(2); session.Save(saved); VerifyStandard(saved, 3);
             using var pdf = PdfReader.Open(saved, PdfDocumentOpenMode.Import);
-            Check(pdf.Pages.Cast<PdfPage>().All(page => page.Annotations.Count == 3));
+            Check(pdf.Pages.Cast<PdfPage>().All(page => page.Annotations.Count == 2));
         });
         yield return ("invalid comments and failed saves preserve PDF bytes, comments and undo state", () =>
         {
@@ -125,6 +127,11 @@ internal static class PdfCommentTests
                 using var label = new PdfCommentLabel(page, [page.Quad(highlight)], "日本語の赤字コメント\n2行目も赤色です");
                 Check(label.Outline.PointCount > 20 && label.NormalizedBounds.IntersectsWith(highlight));
                 Check(label.NormalizedBounds.Left >= 0 && label.NormalizedBounds.Top >= 0 && label.NormalizedBounds.Right <= 1 && label.NormalizedBounds.Bottom <= 1);
+                Check(Math.Abs(label.Bounds.Left + label.Outline.GetBounds().Left - highlight.Left * page.Width) < .01);
+                var wrapTarget = new RectangleF(.8f, .5f, .1f, .02f);
+                using var wrapped = new PdfCommentLabel(page, [page.Quad(wrapTarget)], "English and 日本語 comment that must wrap before the page edge. English and 日本語.");
+                Check(wrapped.Outline.PointCount > 20 && Math.Abs(wrapped.Bounds.Left + wrapped.Outline.GetBounds().Left - wrapTarget.Left * page.Width) < .01);
+                Check(wrapped.Outline.GetBounds().Height > PdfCommentLabel.FontSize * 2 && wrapped.Bounds.Left + wrapped.Outline.GetBounds().Right <= page.Width + .01);
                 var edge = new RectangleF(.99f, .002f, .009f, .025f);
                 using var longLabel = new PdfCommentLabel(page, [page.Quad(edge)], string.Concat(Enumerable.Repeat("長いコメントです。", 300)));
                 Check(longLabel.NormalizedBounds.Left >= 0 && longLabel.NormalizedBounds.Top >= 0 && longLabel.NormalizedBounds.Right <= 1 && longLabel.NormalizedBounds.Bottom <= 1);
@@ -141,6 +148,32 @@ internal static class PdfCommentTests
             Check(!pdf.Pages[0].HasCropBox);
             var after = PdfTextMap.Read(saved);
             Check(after.Pages.SequenceEqual(before.Pages) && string.Concat(after.Glyphs.Select(g => g.Text)) == string.Concat(before.Glyphs.Select(g => g.Text)));
+        });
+        yield return ("Latin and mixed-language labels always have visible glyph outlines", () =>
+        {
+            var page = new PdfTextPage(595, 842, 0, 0, 595, 842, 0);
+            foreach (string text in new[] { "This paper is accepted by SenSys 2023.", "A", "English line one\nEnglish line two", "日本語 and English" })
+            {
+                using var label = new PdfCommentLabel(page, [page.Quad(new RectangleF(.15f, .3f, .2f, .02f))], text);
+                Check(label.Outline.PointCount > 10);
+            }
+        });
+        yield return ("saved comments can be edited, undone, redone and resaved without duplication", () =>
+        {
+            string source = Fixture("Editable"), saved = Path.Combine(root, "editable-comments.pdf");
+            var selection = new PdfCaretSelection(PdfTextMap.Read(source)); selection.Set(4, true);
+            using (var first = new PdfEditSession(source)) { first.AddComment(selection.Regions(), "Original English"); first.Save(saved); }
+            using var session = new PdfEditSession(saved);
+            Check(session.Comments.Count == 1 && !session.IsDirty);
+            var comment = session.Comments.Single(); session.UpdateComment(comment.Id, "Changed 日本語 and English");
+            Check(session.IsDirty && session.Comments.Single().Id == comment.Id);
+            session.Undo(); Check(!session.IsDirty && session.Comments.Single().Text == "Original English");
+            session.Redo(); session.Save(saved); VerifyStandard(saved, 1);
+            session.Save(saved); VerifyStandard(saved, 1);
+            using var reopened = new PdfEditSession(saved);
+            Check(reopened.Comments.Single().Text == "Changed 日本語 and English" && !reopened.IsDirty);
+            reopened.UpdateComment(comment.Id, "Changed 日本語 and English"); Check(!reopened.IsDirty && !reopened.CanUndo);
+            Throws<ArgumentException>(() => reopened.UpdateComment(comment.Id, " "));
         });
     }
 
@@ -228,19 +261,105 @@ internal static class PdfCommentTests
             if (type == "/FreeText")
             {
                 labels++;
-                Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetString("/DA").Contains("1 0 0 rg"));
+                Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetString("/DA") == "1 0 0 rg /Helv 10 Tf");
                 Check(annotation.Elements.GetName("/RT") == "/Group" && annotation.Elements.GetReference("/IRT") is not null);
                 Check(annotation.Elements.GetDictionary("/AP")?.Elements.GetDictionary("/N")?.Stream is not null);
                 continue;
             }
             if (type != "/Highlight") continue;
             highlights++;
-            Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetArray("/QuadPoints")!.Elements.Count % 8 == 0);
+            Check(annotation.Elements.GetString("/Contents").Length == 0 && annotation.Elements.GetArray("/QuadPoints")!.Elements.Count % 8 == 0);
             Check(annotation.Elements.GetDictionary("/AP")?.Elements.GetDictionary("/N")?.Stream is not null);
-            Check(annotation.Elements.GetReference("/Popup") is not null && annotation.Elements.GetReference("/P") is not null);
+            Check(annotation.Elements.GetReference("/Popup") is null && annotation.Elements.GetReference("/P") is not null);
         }
-        Check(highlights == expected && popups == expected && labels == expected);
+        Check(highlights == expected && popups == 0 && labels == expected);
     }
+
+    internal static Task VerifyBrowserAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        foreach (string text in new[] { "This paper is accepted by SenSys 2023.", "日本語のコメント" })
+        {
+            string name = text.StartsWith("This", StringComparison.Ordinal) ? "english" : "japanese";
+            string source = Path.Combine(root, name + "-browser-source.pdf"), saved = Path.Combine(root, name + "-browser-saved.pdf");
+            SamplePdf.Write(source, "Browser comment");
+            var selection = new PdfCaretSelection(PdfTextMap.Read(source)); selection.Set(7, true);
+            using (var session = new PdfEditSession(source)) { session.AddComment(selection.Regions(), text); session.Save(saved); }
+            using var viewer = new PdfView(DocumentPath.Open(saved), Path.Combine(root, name + "-browser-profile-" + Guid.NewGuid().ToString("N"))) { Dock = DockStyle.Fill };
+            host.Controls.Add(viewer); viewer.BringToFront(); await viewer.LoadAsync();
+            var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
+            bool visible = false;
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                await Task.Delay(150);
+                using var data = new MemoryStream();
+                await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, data); data.Position = 0;
+                using var bitmap = new Bitmap(data);
+                if (RedPixels(bitmap) > 20) { bitmap.Save(Path.Combine(root, name + "-browser-red.png")); visible = true; break; }
+            }
+            Check(visible); host.Controls.Remove(viewer);
+        }
+    });
+
+    internal static Task VerifyDragEditModesAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string source = Path.Combine(root, "drag-edit-source.pdf"), saved = Path.Combine(root, "drag-edit-saved.pdf"); SamplePdf.Write(source, "Drag selection");
+        using var window = new PdfWindow(Path.Combine(root, "drag-edit-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(source)); window.Show();
+        var modes = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(m => m.Text == "編集(&E)").DropDownItems.OfType<ToolStripMenuItem>().ToArray();
+        var view = modes.Single(m => m.Name == "ViewMode"); var comments = modes.Single(m => m.Name == "CommentMode"); var pages = modes.Single(m => m.Name == "EditMode");
+        Check(view.Checked && !comments.Checked && !pages.Checked);
+        comments.PerformClick(); comments.PerformClick(); Check(comments.Checked && !view.Checked);
+        var editor = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var canvas = editor.Viewer;
+        await WaitUntilAsync(() => canvas.Visible && canvas.Selection is not null && canvas.IsPageRendered(0));
+        var selection = canvas.Selection!;
+        int start = selection.Map.Glyphs.FindIndex(g => g.Page == 0 && g.Bounds.Top > .15f && g.Text == "S");
+        var first = selection.Map.Glyphs[start]; canvas.CenterPointOnPage(0, first.Bounds.Top + first.Bounds.Height / 2);
+        Point PointAt(int index, bool after)
+        {
+            var glyph = selection.Map.Glyphs[index]; var rect = canvas.PageBounds(glyph.Page);
+            return new Point((int)(rect.Left + rect.Width * (after ? glyph.Bounds.Right - .0001f : glyph.Bounds.Left + .0001f)),
+                (int)(rect.Top + rect.Height * (glyph.Bounds.Top + glyph.Bounds.Height / 2)));
+        }
+        canvas.BeginTextDrag(PointAt(start, false), Keys.None); canvas.ContinueTextDrag(PointAt(start + 6, true)); canvas.EndTextDrag(PointAt(start + 6, true));
+        Check(selection.SelectedText == "SaruPDF");
+        bool requested = false; canvas.CommentRequested += () => requested = true;
+        using (var menu = canvas.CreateCommentMenu(PointAt(start, false))) menu.Items.OfType<ToolStripMenuItem>().Single(m => m.Name == "AddComment").PerformClick();
+        // Close the actual add dialog without changing the document.
+        bool cancelled = false;
+        using var timer = new System.Windows.Forms.Timer { Interval = 50 };
+        timer.Tick += (_, _) => { var dialog = Application.OpenForms.OfType<PdfCommentDialog>().FirstOrDefault(); if (dialog is null) return; timer.Stop(); cancelled = true; dialog.DialogResult = DialogResult.Cancel; dialog.Close(); };
+        timer.Start(); await WaitUntilAsync(() => requested && cancelled && !Application.OpenForms.OfType<PdfCommentDialog>().Any());
+        Check(selection.SelectedText == "SaruPDF" && !editor.Session.IsDirty);
+        editor.AddComment("Before edit"); Check(window.SaveToPath(saved));
+        view.PerformClick(); Check(view.Checked && !comments.Checked);
+        comments.PerformClick();
+        editor = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        await WaitUntilAsync(() => editor.Viewer.Visible && editor.Viewer.Selection is not null);
+        Check(editor.Session.Comments.Count == 1 && !editor.Session.IsDirty);
+        var current = editor.Session.Comments.Single();
+        var reloadedCanvas = editor.Viewer;
+        var highlight = reloadedCanvas.Selection!.Map.Pages[current.PageId].Rectangle(current.Quads[0]);
+        reloadedCanvas.CenterPointOnPage(current.PageId, highlight.Top + highlight.Height / 2);
+        var pageRect = reloadedCanvas.PageBounds(current.PageId);
+        var hit = new Point((int)(pageRect.Left + pageRect.Width * (highlight.Left + highlight.Width / 2)),
+            (int)(pageRect.Top + pageRect.Height * (highlight.Top + highlight.Height / 2)));
+        using var editTimer = new System.Windows.Forms.Timer { Interval = 50 };
+        editTimer.Tick += (_, _) =>
+        {
+            var dialog = Application.OpenForms.OfType<PdfCommentDialog>().FirstOrDefault(); if (dialog is null) return;
+            var input = dialog.Controls.Find("CommentText", true).OfType<TextBox>().Single();
+            Check(!input.ReadOnly); input.Text = "After edit 日本語";
+            editTimer.Stop(); dialog.Controls.Find("SaveComment", true).OfType<Button>().Single().PerformClick();
+        };
+        editTimer.Start();
+        using (var menu = reloadedCanvas.CreateCommentMenu(hit)) menu.Items.OfType<ToolStripMenuItem>().Single(m => m.Name == "EditComment").PerformClick();
+        await WaitUntilAsync(() => editor.Session.IsDirty && editor.Session.Comments.Single().Text == "After edit 日本語");
+        Check(window.SaveToPath(saved));
+        view.PerformClick(); pages.PerformClick(); Check(pages.Checked && !view.Checked && !comments.Checked);
+        pages.PerformClick(); Check(pages.Checked); view.PerformClick(); Check(view.Checked);
+        using var reopened = new PdfEditSession(saved); Check(reopened.Comments.Single().Text == "After edit 日本語"); VerifyStandard(saved, 1);
+    });
     private static int RedPixels(Bitmap image)
     {
         int red = 0;

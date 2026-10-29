@@ -103,19 +103,19 @@ Windows 11では `NativeWindows.SetPageOperationTitleBar` がDWMの `DWMWA_CAPTI
 
 `PdfTextMap` はPdfPigのDocstrumによる行・ブロック検出と読み順推定を使用し、文字の四隅から表示矩形を作ります。文字間の空白と行の区切りを補い、キャレット・アンカー・選択範囲を `PdfCaretSelection` で管理します。日本語CJKの文字情報を読む試験を含み、OCR・PDF本文の書き換えは行いません。抽出はワーカースレッドで行います。回転・CropBoxによる表示座標から元のPDF既定ユーザー空間へ逆変換し、注釈の座標を保存します。
 
-`PdfCommentCanvas` はページ描画を共用し、青い文字選択と緑のキャレットを重ねます。`PdfCommentEditor` はEnterで `PdfCommentDialog` を開き、空欄の追加を禁止します。Ctrl+Enterで追加、Enterで改行、Escで取り消しです。保存済みの注釈のContentsとQuadPoints／Rectを読み、コメントモードのクリックで本文を表示します。現在の版で既存注釈の変更・削除は行いません。
+`PdfCommentCanvas` はページ描画を共用し、青い文字選択と緑のキャレットを重ねます。`PdfCommentEditor` はEnterで `PdfCommentDialog` を開き、空欄の追加を禁止します。Ctrl+Enterで追加、Enterで改行、Escで取り消しです。ドラッグで文字範囲を選択し、選択範囲の右クリックメニューからもコメントを追加できます。保存済みのSaruPDF注釈を識別してクリック／右クリックから本文を変更でき、他のアプリの注釈は読み取り表示します。コメント削除は行いません。
 
-`PdfCommentLabel` は赤字のレイアウトと文字のベクトル輪郭を共用し、入力直後の描画と保存するFreeText注釈のAP/Nを一致させます。文字の輪郭の下端を基準にハイライトへ少し重ね、ページ端に収まるよう配置します。赤字はWindowsのYu Mincho Light（游明朝 Light）から文字輪郭を作り、未導入時は游明朝、MS P明朝、システムの明朝系フォントの順で使用します。フォントファイルの追加配布や本文の画像化を行いません。長い本文は折り返し、見た目の高さを最大200ページ単位に制限します。ContentsとPopupには全文を保持します。FreeTextは赤色のDA、明示的なベクトルAP、HighlightへのIRTとRT/Groupを持ちます。ページ寸法の取得には変更しないEffectiveCropBoxReadOnly／MediaBoxReadOnlyを使い、未指定のCropBoxを作りません。
+`PdfCommentLabel` は赤字のレイアウトと文字のベクトル輪郭を共用し、入力直後の描画と保存するFreeText注釈のAP/Nを一致させます。英語の文字の高さはフォントの行高に切り上げ、描画用の矩形が小さくなって文字輪郭が空になることを防ぎます。文字の輪郭の先頭をハイライト先頭に合わせ、残りのページ幅で折り返します。極端に右端に近いときは1文字分の幅を確保します。文字の輪郭の下端を基準にハイライトへ少し重ね、ページ端に収まるよう配置します。赤字は10 ptで、WindowsのYu Mincho Light（游明朝 Light）から文字輪郭を作り、未導入時は游明朝、MS P明朝、システムの明朝系フォントの順で使用します。フォントファイルの追加配布や本文の画像化を行いません。長い本文は折り返し、見た目の高さを最大200ページ単位に制限します。FreeTextのContentsには全文を保持します。FreeTextは赤色のDA、明示的なベクトルAP、HighlightへのIRTとRT/Groupを持ちます。ページ寸法の取得には変更しないEffectiveCropBoxReadOnly／MediaBoxReadOnlyを使い、未指定のCropBoxを作りません。
 
-`PdfEditSession` はコメントもUndo/Redo・保存済み基準に含めます。`PdfComments` がISO 32000のHighlight／Popup注釈を出力し、`/QuadPoints` は既定ユーザー空間の四角形を反時計回りに格納します。`/Contents` はUnicode PDF文字列、改行はCRとし、`/T`、`/NM`、`/CreationDate`、`/M`、`/P`、Popupの親参照を設定します。標準の `/AP /N` Form XObjectを与え、Multiply・透明度を含めたハイライト表示を作ります。本文の画像化や別ファイルへのコメント保存は行いません。ページをまたぐコメントは各ページの注釈として保存し、追加全体を1回でUndoできます。
+`PdfEditSession` はコメントもUndo/Redo・保存済み基準に含めます。`PdfComments` がISO 32000のHighlight／FreeText注釈を出力し、`/QuadPoints` は既定ユーザー空間の四角形を反時計回りに格納します。`/Contents` はUnicode PDF文字列、改行はCRとし、`/T`、`/NM`、`/CreationDate`、`/M`、`/P`を設定します。ハイライトにはContentsを持たせず、WebView2の吹き出しマークを抑えます。標準の `/AP /N` Form XObjectを与え、Multiply・透明度を含めたハイライト表示を作ります。本文の画像化や別ファイルへのコメント保存は行いません。ページをまたぐコメントは各ページの注釈として保存し、追加全体を1回でUndoできます。
 
-ページ操作とコメントは排他的なモードです。変更済みならモード切り替え時にも保存・破棄・取消を確認します。保存は既存の一時ファイル・Flush・再読込検証・原本SHA-256確認・原子的な置換を共用します。文字情報のないPDF、複雑な段組み、縦書き、特殊なフォントや読み順の完全対応は保証しません。PDF/A／PDF/UAの適合性を新たに保証するものではありません。
+起動時はViewモードで、編集メニューでView・ページ操作・コメントの排他的なモードを選択します。変更済みならモード切り替え時にも保存・破棄・取消を確認します。SaruPDFの既存注釈をスナップショットから読み取り、コメント表示用の一時PDFでは対象の注釈を隠し、現在の状態を画面に重ねます。保存時は元のSaruPDF注釈を再生成し、Undo/Redoの履歴に本文変更を含めます。保存は既存の一時ファイル・Flush・再読込検証・原本SHA-256確認・原子的な置換を共用します。文字情報のないPDF、複雑な段組み、縦書き、特殊なフォントや読み順の完全対応は保証しません。PDF/A／PDF/UAの適合性を新たに保証するものではありません。
 
 仕様: [ISO 32000注釈の関連箇所](https://pdf-issues.pdfa.org/32000-2-2020/clause12.html)、[PdfPig](https://github.com/UglyToad/PdfPig)。PdfPigのLICENSE・NOTICESを配布物へ含めます。
 
 ## 確認
 
-`scripts/Test.ps1`: **72件**。既存のPDF編集・コピー試験に、複数PDFのインポート、拡大縮小、通常表示からの倍率引き継ぎ、モード名とCtrl+N削除の検査を含みます。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
+`scripts/Test.ps1`: **76件**。既存のPDF編集・コピー試験に、複数PDFのインポート、拡大縮小、通常表示からの倍率引き継ぎ、モード名とCtrl+N削除の検査を含みます。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
 
 `scripts/Test-Installer.ps1` は生成したセットアップを作業フォルダー内の専用ディレクトリにサイレント導入・更新・削除し、候補登録や既定設定・ユーザーファイル保持を検証します。**これは現在のユーザーに一時的な SaruPDF 登録とスタートメニューを作る試験です。** 既存の SaruPDF 登録がある場合は上書きせず停止します。結果は検証記録を参照してください。
 
