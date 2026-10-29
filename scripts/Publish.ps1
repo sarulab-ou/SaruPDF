@@ -21,6 +21,8 @@ try {
     $licenses = Join-Path $output 'third-party-licenses'
     New-Item -ItemType Directory -Path $licenses -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/PDFsharp-LICENSE.txt') -Destination $licenses
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/Windows-SDK-LICENSE.txt') -Destination $licenses
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/CsWinRT-LICENSE.txt') -Destination $licenses
     foreach ($package in @(
         @{ Path = 'microsoft.extensions.logging.abstractions/8.0.3'; Name = 'Microsoft.Extensions.Logging.Abstractions' },
         @{ Path = 'microsoft.extensions.dependencyinjection.abstractions/8.0.2'; Name = 'Microsoft.Extensions.DependencyInjection.Abstractions' }

@@ -24,7 +24,7 @@ internal sealed class PdfWindow : Form
     private readonly ToolStripMenuItem redoEdit = new("やり直し(&R)") { ShortcutKeys = Keys.Control | Keys.Y, Enabled = false };
     private readonly ToolStripMenuItem save = new("保存(&S)") { ShortcutKeys = Keys.Control | Keys.S, Enabled = false };
     private readonly ToolStripMenuItem saveAs = new("名前を付けて保存(&A)…") { ShortcutKeys = Keys.Control | Keys.Shift | Keys.S, Enabled = false };
-    private PdfView? ActiveViewer => editor?.Viewer ?? viewer;
+    private PdfView? ActiveViewer => editor is null ? viewer : null;
 
     public event Action<string[]>? OpenRequested;
     public event Action<PdfDocument>? DocumentPathChanged;
@@ -90,7 +90,7 @@ internal sealed class PdfWindow : Form
         Controls.Add(pathBox);
         Controls.Add(menu);
         Shown += async (_, _) => { if (viewer is not null) await viewer.LoadAsync(); };
-        Deactivate += (_, _) => ActiveViewer?.CancelPageInput();
+        Deactivate += (_, _) => CancelPageInput();
     }
 
     public void SetDocument(PdfDocument document)
@@ -119,7 +119,7 @@ internal sealed class PdfWindow : Form
 
     private void SelectFiles()
     {
-        ActiveViewer?.CancelPageInput();
+        CancelPageInput();
         using var dialog = new OpenFileDialog
         {
             Title = "PDF を開く", Filter = "PDF ファイル (*.pdf)|*.pdf",
@@ -131,6 +131,7 @@ internal sealed class PdfWindow : Form
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (TryHandleEditKey(keyData)) return true;
+        if (editor?.Viewer.TryHandlePageKey(keyData) == true) return true;
         if (ActiveViewer?.TryHandlePageKey(keyData) == true) return true;
         if (keyData == (Keys.Control | Keys.O)) { SelectFiles(); return true; }
         if (keyData == (Keys.Control | Keys.W)) { Close(); return true; }
@@ -156,14 +157,9 @@ internal sealed class PdfWindow : Form
             UseWaitCursor = true;
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
-            editor = new PdfEditor(session, userDataFolder);
+            editor = new PdfEditor(session);
             editor.StateChanged += UpdateEditMenus;
             editor.Failed += ex => ShowError("ページを編集できませんでした。\n" + ex.Message);
-            editor.SaveRequested += () => SaveEdits(false);
-            editor.Viewer.CommandKeyRequested += TryHandleEditKey;
-            editor.Viewer.OpenDialogRequested += SelectFiles;
-            editor.Viewer.CloseRequested += Close;
-            editor.Viewer.OpenRequested += path => OpenRequested?.Invoke([path]);
             viewer.Visible = false;
             content.Controls.Add(editor); editor.BringToFront();
             UpdateEditMenus();
@@ -200,15 +196,22 @@ internal sealed class PdfWindow : Form
             Keys.Control | Keys.V => () => editor?.Paste(),
             Keys.Control | Keys.Z => () => editor?.Undo(),
             Keys.Control | Keys.Y => () => editor?.Redo(),
+            Keys.Control | Keys.A => () => editor?.Viewer.SelectAll(),
             Keys.Control | Keys.S => () => SaveEdits(false),
             Keys.Control | Keys.Shift | Keys.S => () => SaveEdits(true),
             _ => null
         };
         if (command is null) return false;
-        ActiveViewer?.CancelPageInput();
+        CancelPageInput();
         // WebView2 keyboard callbacks must return before navigation or dialogs.
         BeginInvoke(() => { if (!IsDisposed) command(); });
         return true;
+    }
+
+    private void CancelPageInput()
+    {
+        editor?.Viewer.CancelPageInput();
+        viewer?.CancelPageInput();
     }
 
     private bool SaveEdits(bool choosePath)

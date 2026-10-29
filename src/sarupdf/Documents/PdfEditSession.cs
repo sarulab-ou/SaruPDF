@@ -6,7 +6,7 @@ namespace SaruPdf.Documents;
 // Page identities refer to the immutable input snapshot, never to a preview file.
 internal sealed class PdfEditSession : IDisposable
 {
-    private sealed record State(int[] Pages, int? Cut);
+    private sealed record State(int[] Pages, int[] Cut);
     private readonly byte[] original;
     private readonly List<int> pages;
     private readonly Stack<State> undo = new();
@@ -15,14 +15,15 @@ internal sealed class PdfEditSession : IDisposable
     private readonly List<string> previews = [];
     private int[] savedPages;
     private byte[] savedHash;
-    private int? cut;
+    private int[] cut = [];
 
     internal string SourcePath { get; private set; }
     internal int PageCount => pages.Count;
     internal int TotalPages { get; }
     internal IReadOnlyList<int> Pages => pages.AsReadOnly();
-    internal int? CutPage => cut;
-    internal bool HasPendingCut => cut.HasValue;
+    internal int? CutPage => cut.Length == 0 ? null : cut[0];
+    internal IReadOnlyList<int> CutPages => Array.AsReadOnly(cut);
+    internal bool HasPendingCut => cut.Length != 0;
     internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages);
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
@@ -45,13 +46,17 @@ internal sealed class PdfEditSession : IDisposable
         savedPages = [.. pages];
     }
 
-    internal void Cut(int index)
+    internal void Cut(int index) => Cut([index]);
+
+    internal void Cut(IEnumerable<int> indexes)
     {
         if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けるか、元に戻してください。");
-        if (index < 0 || index >= PageCount) throw new ArgumentOutOfRangeException(nameof(index));
+        int[] selected = indexes.Distinct().Order().ToArray();
+        if (selected.Length == 0 || selected.Any(index => index < 0 || index >= PageCount))
+            throw new ArgumentOutOfRangeException(nameof(indexes));
         Remember();
-        cut = pages[index];
-        pages.RemoveAt(index);
+        cut = selected.Select(index => pages[index]).ToArray();
+        foreach (int index in selected.Reverse()) pages.RemoveAt(index);
     }
 
     // index is a gap in the remaining pages: 0 is the start, Count is the end.
@@ -60,13 +65,13 @@ internal sealed class PdfEditSession : IDisposable
         if (!HasPendingCut) throw new InvalidOperationException("先にページを切り取ってください。");
         if (index < 0 || index > PageCount) throw new ArgumentOutOfRangeException(nameof(index));
         Remember();
-        pages.Insert(index, cut!.Value);
-        cut = null;
+        pages.InsertRange(index, cut);
+        cut = [];
     }
 
     internal bool Undo() => Restore(undo, redo);
     internal bool Redo() => Restore(redo, undo);
-    private State Snapshot() => new([.. pages], cut);
+    private State Snapshot() => new([.. pages], [.. cut]);
     private void Remember() { undo.Push(Snapshot()); redo.Clear(); }
     private bool Restore(Stack<State> from, Stack<State> to)
     {
@@ -86,6 +91,14 @@ internal sealed class PdfEditSession : IDisposable
         return path;
     }
 
+    internal string WriteOriginalPreview()
+    {
+        Directory.CreateDirectory(previewDirectory);
+        string path = Path.Combine(previewDirectory, "original.pdf");
+        if (!File.Exists(path)) { File.WriteAllBytes(path, original); previews.Add(path); }
+        return path;
+    }
+
     private byte[] Serialize()
     {
         using var input = new MemoryStream(original, false);
@@ -96,11 +109,12 @@ internal sealed class PdfEditSession : IDisposable
         for (int i = 0; i < pages.Count; i++)
         {
             int oldIndex = current.IndexOf(pages[i]);
+            if (oldIndex == i) continue;
             pdf.Pages.MovePage(oldIndex, i);
             current.RemoveAt(oldIndex); current.Insert(i, pages[i]);
         }
         // Only previews can omit a page while it is held by Cut.
-        if (HasPendingCut) pdf.Pages.RemoveAt(pdf.PageCount - 1);
+        while (pdf.PageCount > pages.Count) pdf.Pages.RemoveAt(pdf.PageCount - 1);
         using var output = new MemoryStream();
         pdf.Save(output, false);
         return output.ToArray();

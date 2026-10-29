@@ -1,5 +1,10 @@
 # サードパーティーコンポーネント
 
+- Windows標準の `Windows.Data.Pdf` — 編集モードのページ描画に使用します。Windowsに含まれる描画エンジン自体は配布しません。
+- Windows SDK .NET projection **10.0.19041.57**（`Microsoft.Windows.SDK.NET.dll`）とC#/WinRT Runtime **2.2.0**（`WinRT.Runtime.dll`）を同梱します。公式ライセンスはソースの `assets/licenses/Windows-SDK-LICENSE.txt` / `CsWinRT-LICENSE.txt`、配布物の `third-party-licenses/` に含めます。
+  https://aka.ms/WinSDKLicenseURL
+  https://github.com/microsoft/CsWinRT/blob/master/LICENSE
+
 - Microsoft.Web.WebView2 **1.0.4314.35** — Microsoft のライセンスに従います。
   https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35
   https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35/License

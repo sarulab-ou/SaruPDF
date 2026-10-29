@@ -140,6 +140,28 @@ internal static class PdfEditingTests
             Throws<InvalidDataException>(() => { using var session = new PdfEditSession(signaturePath); });
             Check(File.ReadAllBytes(signaturePath).SequenceEqual(signatureBytes));
         });
+        yield return ("multiple cut pages retain PDF order through paste, undo, redo and save", () =>
+        {
+            string path = Fixture();
+            using var session = new PdfEditSession(path);
+            session.Cut([2, 0, 2]); Check(session.CutPages.SequenceEqual([0, 2])); Order(session, 1);
+            string preview = session.WritePreview()!;
+            AssertContent(preview, 2);
+            Throws<InvalidOperationException>(() => session.Save(path));
+            session.Paste(1); Order(session, 1, 0, 2);
+            session.Save(path); AssertContent(path, 2, 1, 3);
+            session.Undo(); Check(session.CutPages.Count == 2); session.Undo(); Order(session, 0, 1, 2);
+            session.Redo(); session.Redo(); Check(!session.IsDirty);
+            session.Cut([0, 1, 2]); Check(session.PageCount == 0 && session.WritePreview() is null);
+            session.Paste(0); session.Save(path); AssertContent(path, 2, 1, 3);
+        });
+        yield return ("invalid multi-page selections leave state and history intact", () =>
+        {
+            using var session = new PdfEditSession(Fixture());
+            Throws<ArgumentOutOfRangeException>(() => session.Cut([]));
+            Throws<ArgumentOutOfRangeException>(() => session.Cut([0, 3]));
+            Check(!session.IsDirty && !session.CanUndo); Order(session, 0, 1, 2);
+        });
         yield return ("save-as catalog changes retain one-window-per-document behavior", () =>
         {
             var catalog = new WindowCatalog<object>(); var a = new object(); var b = new object();
@@ -151,110 +173,128 @@ internal static class PdfEditingTests
         });
     }
 
-    internal static Task VerifyEditorRenderingAsync(string root)
+    internal static Task VerifyEditorRenderingAsync(string root) => OnSurfaceAsync(async host =>
     {
         string pdf = Path.Combine(root, "editor-colors.pdf");
         PageNavigationTests.WriteColorPdf(pdf);
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            try
-            {
-            using var host = new PageNavigationTests.RenderTestWindow { ClientSize = new Size(1120, 720) };
-            using var editor = new PdfEditor(new PdfEditSession(pdf), Path.Combine(root, "edit-render-profile-" + Guid.NewGuid().ToString("N")));
-            host.Controls.Add(editor);
-            editor.Failed += ex => done.TrySetException(ex);
-            host.Shown += async (_, _) =>
-            {
-                try
-                {
-                    var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor.Viewer)!;
-                    var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    web.NavigationCompleted += (_, e) => { if (e.IsSuccess && web.Source?.IsFile == true) loaded.TrySetResult(); };
-                    await editor.LoadAsync();
-                    await loaded.Task.WaitAsync(TimeSpan.FromSeconds(12));
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Red);
-                    editor.Controls.Find("CutPage", true).OfType<Button>().Single().PerformClick();
-                    Check(editor.Session.HasPendingCut);
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Lime);
-                    editor.SelectEnd();
-                    editor.Controls.Find("PastePage", true).OfType<Button>().Single().PerformClick();
-                    Check(!editor.Session.HasPendingCut && editor.Session.PageCount == 12 && editor.Session.IsDirty);
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Red);
-                    // Number navigation updates the selected page used by Cut.
-                    Check(editor.Viewer.TryHandlePageKey(Keys.D1)); Check(editor.Viewer.TryHandlePageKey(Keys.Enter));
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Lime); Check(editor.SelectedIndex == 0);
-                    string savedPath = Path.Combine(root, "editor-render-saved.pdf");
-                    editor.Session.Save(savedPath); editor.UpdateState();
-                    using (var saved = PdfReader.Open(savedPath, PdfDocumentOpenMode.Import)) Check(saved.PageCount == 12);
-                    editor.Viewer.NavigateDocument(DocumentPath.Open(savedPath));
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Lime);
-                    editor.Viewer.NavigateDocument(DocumentPath.Open(savedPath), 12);
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Red);
-                    editor.Undo(); Check(editor.Session.HasPendingCut);
-                    editor.Undo(); Check(!editor.Session.HasPendingCut && editor.Session.IsDirty);
-                    await PageNavigationTests.ExpectColorAsync(web, Color.Red);
-                    done.TrySetResult();
-                }
-                catch (Exception ex) { done.TrySetException(ex); }
-                finally { host.Close(); }
-            };
-            Application.Run(host);
-            }
-            catch (Exception ex) { done.TrySetException(ex); }
-        }) { IsBackground = true };
-        thread.SetApartmentState(ApartmentState.STA); thread.Start();
-        return done.Task.WaitAsync(TimeSpan.FromSeconds(60));
-    }
+        using var editor = new PdfEditor(new PdfEditSession(pdf));
+        host.Controls.Add(editor);
+        Exception? renderingError = null;
+        editor.Failed += ex => renderingError = ex;
+        await editor.LoadAsync();
+        var canvas = editor.Viewer;
+        await ExpectCanvasColorAsync(canvas, 0, Color.Red);
+        Check(editor.Controls.Count == 1 && editor.Controls[0] is PdfPageCanvas);
+        Check(!editor.Controls.OfType<SplitContainer>().Any());
+        canvas.SelectAt(VisibleCenter(canvas, 0), Keys.None);
+        RevealPage(canvas, 2);
+        canvas.SelectAt(VisibleCenter(canvas, 2), Keys.Control);
+        Check(canvas.SelectedPages.SequenceEqual([0, 2]));
+        canvas.SelectAt(VisibleCenter(canvas, 2), Keys.Control);
+        Check(canvas.SelectedPages.SequenceEqual([0]));
+        RevealPage(canvas, 4);
+        canvas.SelectAt(VisibleCenter(canvas, 4), Keys.Shift);
+        Check(canvas.SelectedPages.SequenceEqual([2, 3, 4]));
+        canvas.SelectPage(1);
+        RevealPage(canvas, 2);
+        canvas.SelectAt(VisibleCenter(canvas, 2), Keys.Control);
+        using (var menu = canvas.CreatePageMenu(VisibleCenter(canvas, 2)))
+            menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "CutPages").PerformClick();
+        Check(editor.Session.CutPages.SequenceEqual([0, 2]) && editor.Session.PageCount == 10);
+        await ExpectCanvasColorAsync(canvas, 0, Color.Lime);
+        var gap = canvas.GapPoint(1);
+        canvas.AutoScrollPosition = new Point(0, Math.Max(0, gap.Y - canvas.AutoScrollPosition.Y - 100));
+        using (var menu = canvas.CreatePageMenu(canvas.GapPoint(1)))
+            menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "PasteAt1").PerformClick();
+        Check(!editor.Session.HasPendingCut && editor.Session.PageCount == 12);
+        Check(editor.Session.Pages.Take(4).SequenceEqual([1, 0, 2, 3]));
+        Check(canvas.SelectedPages.SequenceEqual([1, 2]));
+        await ExpectCanvasColorAsync(canvas, 1, Color.Red);
+        Check(canvas.TryHandlePageKey(Keys.NumPad3)); Check(canvas.TryHandlePageKey(Keys.Enter));
+        await ExpectCanvasColorAsync(canvas, 2, Color.Blue);
+        string savedPath = Path.Combine(root, "editor-render-saved.pdf");
+        editor.Session.Save(savedPath); editor.UpdateState();
+        editor.Undo(); Check(editor.Session.CutPages.SequenceEqual([0, 2]));
+        editor.Undo(); Check(!editor.Session.HasPendingCut && editor.Session.IsDirty);
+        canvas.SelectPage(1); await ExpectCanvasColorAsync(canvas, 0, Color.Red);
+        editor.Redo(); editor.Redo(); Check(!editor.Session.IsDirty);
+        canvas.SelectAll(); editor.Cut(); Check(editor.Session.PageCount == 0 && editor.Session.CutPages.Count == 12);
+        using (var menu = canvas.CreatePageMenu(new Point(100, 100)))
+            menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "PasteAt0").PerformClick();
+        Check(editor.Session.PageCount == 12 && !editor.Session.IsDirty);
+        using var savedViewer = new PdfPageCanvas();
+        host.Controls.Add(savedViewer); savedViewer.BringToFront();
+        savedViewer.SetOrder(Enumerable.Range(0, 12), 0);
+        await savedViewer.LoadAsync(savedPath);
+        await ExpectCanvasColorAsync(savedViewer, 0, Color.Lime);
+        savedViewer.SelectPage(2); await ExpectCanvasColorAsync(savedViewer, 1, Color.Red);
+        savedViewer.SelectPage(3); await ExpectCanvasColorAsync(savedViewer, 2, Color.Blue);
+        host.ClientSize = new Size(860, 650);
+        savedViewer.SelectPage(3); await ExpectCanvasColorAsync(savedViewer, 2, Color.Blue);
+        using (var menu = savedViewer.CreatePageMenu(VisibleCenter(savedViewer, 2)))
+            menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "縮小").PerformClick();
+        savedViewer.SelectPage(3); await ExpectCanvasColorAsync(savedViewer, 2, Color.Blue);
+        Check(renderingError is null);
+        using var snapshot = new Bitmap(savedViewer.Width, savedViewer.Height);
+        savedViewer.DrawToBitmap(snapshot, savedViewer.ClientRectangle);
+        snapshot.Save(Path.Combine(root, "direct-edit-render.png"));
+        string sample = Path.Combine(root, "direct-edit-layout.pdf");
+        SamplePdf.Write(sample, "Direct page editing");
+        using var layout = new PdfPageCanvas();
+        host.Controls.Add(layout); layout.BringToFront(); layout.SetOrder([0, 1, 2], 0);
+        await layout.LoadAsync(sample);
+        await WaitUntilAsync(() => layout.IsPageRendered(0));
+        using var layoutImage = new Bitmap(layout.Width, layout.Height);
+        layout.DrawToBitmap(layoutImage, layout.ClientRectangle);
+        layoutImage.Save(Path.Combine(root, "direct-edit-layout.png"));
+    });
 
-    internal static Task VerifyWindowCommandsAsync(string root)
+    internal static Task VerifyWindowCommandsAsync(string root) => OnSurfaceAsync(async host =>
     {
         string pdf = Path.Combine(root, "window-edit-colors.pdf");
         PageNavigationTests.WriteColorPdf(pdf);
+        using var window = new PdfWindow(Path.Combine(root, "window-edit-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window);
+        var editMode = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "編集(&E)").DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "EditMode");
+        Check(!editMode.Enabled);
+        window.SetDocument(DocumentPath.Open(pdf)); Check(editMode.Enabled);
+        window.Show(); editMode.PerformClick(); Check(editMode.Checked);
+        var editor = (PdfEditor)typeof(PdfWindow).GetField("editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        await ExpectCanvasColorAsync(editor.Viewer, 0, Color.Red);
+        bool Key(Keys keys)
+        {
+            var method = typeof(PdfWindow).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            object[] args = [new Message(), keys]; return (bool)method.Invoke(window, args)!;
+        }
+        Check(Key(Keys.Control | Keys.X));
+        await WaitUntilAsync(() => editor.Session.HasPendingCut);
+        await ExpectCanvasColorAsync(editor.Viewer, 0, Color.Lime);
+        editor.SelectEnd(); Check(Key(Keys.Control | Keys.V));
+        await WaitUntilAsync(() => !editor.Session.HasPendingCut);
+        await ExpectCanvasColorAsync(editor.Viewer, 11, Color.Red);
+        Check(Key(Keys.Control | Keys.S));
+        await WaitUntilAsync(() => !editor.Session.IsDirty);
+        using (var check = PdfReader.Open(pdf, PdfDocumentOpenMode.Import)) Check(check.PageCount == 12);
+        editMode.PerformClick(); Check(!editMode.Checked);
+        var viewer = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var readWeb = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
+        await WaitUntilAsync(() => readWeb.CoreWebView2 is not null && readWeb.Source?.IsFile == true);
+        await PageNavigationTests.ExpectColorAsync(readWeb, Color.Lime);
+        Check(window.Text == $"{Path.GetFileName(pdf)}（{pdf}）");
+        window.Close(); Check(window.IsDisposed);
+    });
+
+    private static Task OnSurfaceAsync(Func<Form, Task> action)
+    {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
             try
             {
                 using var host = new PageNavigationTests.RenderTestWindow { ClientSize = new Size(1120, 720) };
-                using var window = new PdfWindow(Path.Combine(root, "window-edit-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
-                host.Controls.Add(window);
-                var menu = window.MainMenuStrip!;
-                var editMode = menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "編集(&E)").DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "EditMode");
-                Check(!editMode.Enabled);
-                window.SetDocument(DocumentPath.Open(pdf)); Check(editMode.Enabled);
                 host.Shown += async (_, _) =>
                 {
-                    try
-                    {
-                        window.Show();
-                        editMode.PerformClick(); Check(editMode.Checked);
-                        var editor = (PdfEditor)typeof(PdfWindow).GetField("editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
-                        var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor.Viewer)!;
-                        await WaitUntilAsync(() => web.CoreWebView2 is not null && web.Source?.IsFile == true);
-                        await PageNavigationTests.ExpectColorAsync(web, Color.Red);
-                        bool Key(Keys keys)
-                        {
-                            var method = typeof(PdfWindow).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                            object[] args = [new Message(), keys]; return (bool)method.Invoke(window, args)!;
-                        }
-                        Check(Key(Keys.Control | Keys.X));
-                        await WaitUntilAsync(() => editor.Session.HasPendingCut);
-                        await PageNavigationTests.ExpectColorAsync(web, Color.Lime);
-                        editor.SelectEnd(); Check(Key(Keys.Control | Keys.V));
-                        await WaitUntilAsync(() => !editor.Session.HasPendingCut);
-                        await PageNavigationTests.ExpectColorAsync(web, Color.Red);
-                        Check(Key(Keys.Control | Keys.S));
-                        await WaitUntilAsync(() => !editor.Session.IsDirty);
-                        using (var check = PdfReader.Open(pdf, PdfDocumentOpenMode.Import)) Check(check.PageCount == 12);
-                        editMode.PerformClick(); Check(!editMode.Checked);
-                        var viewer = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
-                        var readWeb = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
-                        await PageNavigationTests.ExpectColorAsync(readWeb, Color.Lime);
-                        Check(window.Text == $"{Path.GetFileName(pdf)}（{pdf}）");
-                        window.Close(); Check(window.IsDisposed);
-                        done.TrySetResult();
-                    }
+                    try { await action(host); done.TrySetResult(); }
                     catch (Exception ex) { done.TrySetException(ex); }
                     finally { host.Close(); }
                 };
@@ -265,7 +305,28 @@ internal static class PdfEditingTests
         thread.SetApartmentState(ApartmentState.STA); thread.Start();
         return done.Task.WaitAsync(TimeSpan.FromSeconds(60));
     }
-
+    private static void RevealPage(PdfPageCanvas canvas, int index)
+    {
+        var rectangle = canvas.PageBounds(index);
+        canvas.AutoScrollPosition = new Point(0, Math.Max(0, rectangle.Top - canvas.AutoScrollPosition.Y - 32));
+        canvas.Invalidate();
+    }
+    private static Point VisibleCenter(PdfPageCanvas canvas, int index)
+    {
+        var rectangle = Rectangle.Intersect(canvas.PageBounds(index), canvas.ClientRectangle);
+        Check(rectangle.Width > 0 && rectangle.Height > 0);
+        return new Point(rectangle.Left + rectangle.Width / 2, rectangle.Top + rectangle.Height / 2);
+    }
+    private static async Task ExpectCanvasColorAsync(PdfPageCanvas canvas, int index, Color color)
+    {
+        await WaitUntilAsync(() => canvas.IsPageRendered(index));
+        using var bitmap = new Bitmap(canvas.Width, canvas.Height);
+        canvas.DrawToBitmap(bitmap, canvas.ClientRectangle);
+        var point = VisibleCenter(canvas, index);
+        var actual = bitmap.GetPixel(point.X, point.Y);
+        if (Math.Abs(actual.R - color.R) > 12 || Math.Abs(actual.G - color.G) > 12 || Math.Abs(actual.B - color.B) > 12)
+            throw new Exception($"Canvas page {index + 1}: expected {color}, painted {actual}.");
+    }
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(12);
