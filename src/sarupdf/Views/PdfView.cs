@@ -165,6 +165,40 @@ internal sealed class PdfView : UserControl
         pageHint.Visible = false;
     }
 
+    internal async Task<PdfPageViewState?> CapturePageViewAsync()
+    {
+        if (!ready || web.CoreWebView2 is null) return null;
+        try
+        {
+            return await ReadPageViewAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
+    }
+
+    private async Task<PdfPageViewState?> ReadPageViewAsync()
+    {
+        for (int attempt = 0; attempt < 10 && !IsDisposed && ready; attempt++)
+        {
+            var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, """
+                (() => {
+                    const v = window.viewer?.viewport_;
+                    if (!v || !v.documentDimensions_) return null;
+                    const page = v.getMostVisiblePage();
+                    const rect = v.getPageScreenRect(page);
+                    return {page, width: rect.width * devicePixelRatio};
+                })()
+                """);
+            if (result is { ValueKind: System.Text.Json.JsonValueKind.Object } value)
+            {
+                int page = value.GetProperty("page").GetInt32();
+                double width = value.GetProperty("width").GetDouble();
+                if (page >= 0 && double.IsFinite(width) && width > 0) return new(page, width);
+            }
+            await Task.Delay(100);
+        }
+        return null;
+    }
+
     private void UpdatePageHint(string? error = null)
     {
         pageHint.Text = error ?? $"移動先: {pageInput.Text} ページ   Enterで移動 / Escで取消";

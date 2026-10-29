@@ -31,12 +31,6 @@ internal sealed class PdfEditSession : IDisposable
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
 
-    private PdfEditSession()
-    {
-        SourcePath = ""; original = []; pages = []; savedPages = []; savedHash = [];
-    }
-    internal static PdfEditSession CreateNew() => new();
-
     internal PdfEditSession(string path)
     {
         SourcePath = DocumentPath.Open(path).Path;

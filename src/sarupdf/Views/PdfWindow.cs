@@ -18,7 +18,8 @@ internal sealed class PdfWindow : Form
     private readonly PdfPageClipboard pageClipboard;
     private PdfDocument? document;
     private PdfEditor? editor;
-    private readonly ToolStripMenuItem editMode = new("編集モード(&M)") { Name = "EditMode", Enabled = false };
+    private bool? appliedPageOperationTitle;
+    private readonly ToolStripMenuItem editMode = new("ページ操作モード(&M)") { Name = "EditMode", Enabled = false };
     private readonly ToolStripMenuItem cutPage = new("ページを切り取り(&T)") { ShortcutKeys = Keys.Control | Keys.X, Enabled = false };
     private readonly ToolStripMenuItem copyPage = new("ページをコピー(&C)") { ShortcutKeys = Keys.Control | Keys.C, Enabled = false };
     private readonly ToolStripMenuItem pastePage = new("ページを貼り付け(&P)") { ShortcutKeys = Keys.Control | Keys.V, Enabled = false };
@@ -29,7 +30,6 @@ internal sealed class PdfWindow : Form
     private PdfView? ActiveViewer => editor is null ? viewer : null;
 
     public event Action<string[]>? OpenRequested;
-    public event Action? NewWindowRequested;
     public event Action<PdfDocument>? DocumentPathChanged;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal Func<string, bool>? CanUseDocumentPath { get; set; }
@@ -46,7 +46,6 @@ internal sealed class PdfWindow : Form
         AppIcon.Apply(this);
         var menu = new MenuStrip { Padding = new Padding(8, 5, 8, 5), BackColor = Color.FromArgb(247, 248, 251) };
         var file = new ToolStripMenuItem("ファイル(&F)");
-        file.DropDownItems.Add(new ToolStripMenuItem("新規ウィンドウ(&N)", null, (_, _) => NewWindowRequested?.Invoke()) { ShortcutKeys = Keys.Control | Keys.N });
         file.DropDownItems.Add(new ToolStripMenuItem("PDF を開く(&O)…", null, (_, _) => SelectFiles()) { ShortcutKeys = Keys.Control | Keys.O });
         file.DropDownItems.Add(save);
         file.DropDownItems.Add(saveAs);
@@ -64,14 +63,6 @@ internal sealed class PdfWindow : Form
         undoEdit.Click += (_, _) => editor?.Undo();
         redoEdit.Click += (_, _) => editor?.Redo();
         menu.Items.Add(edit);
-        menu.Items.Add(new ToolStripMenuItem("PDF を開く…", null, (_, _) => SelectFiles()));
-        var settings = new ToolStripMenuItem("設定(&S)");
-        settings.DropDownItems.Add(new ToolStripMenuItem("PDF の関連付け(&A)…", null, (_, _) =>
-        {
-            using var dialog = new PdfAssociationDialog();
-            dialog.ShowDialog(this);
-        }));
-        menu.Items.Add(settings);
         MainMenuStrip = menu;
 
         var dismiss = new Button { Text = "閉じる", Dock = DockStyle.Right, Width = 76, AccessibleName = "エラー表示を閉じる" };
@@ -122,26 +113,31 @@ internal sealed class PdfWindow : Form
         content.Controls.Add(viewer);
     }
 
-    internal void SetNewDocument()
-    {
-        if (viewer is not null || editor is not null) throw new InvalidOperationException("文書が割り当てられています。");
-        foreach (Control child in content.Controls) child.Dispose();
-        content.Controls.Clear();
-        Text = "無題"; pathBox.Text = "新規PDF（未保存）";
-        AttachEditor(PdfEditSession.CreateNew());
-        editMode.Enabled = false;
-    }
-
-    private void AttachEditor(PdfEditSession session)
+    private void AttachEditor(PdfEditSession session, Task<PdfPageViewState?> viewState)
     {
         editor = new PdfEditor(session, pageClipboard);
         editor.StateChanged += UpdateEditMenus;
         editor.Failed += ex => ShowError("ページを編集できませんでした。\n" + ex.Message);
         editor.ImportRequested += SelectImportPdfs;
-        if (viewer is not null) viewer.Visible = false;
+        editor.Visible = false;
         content.Controls.Add(editor); editor.BringToFront();
         UpdateEditMenus();
-        _ = editor.LoadAsync();
+        _ = LoadEditorAsync(editor, viewState);
+    }
+
+    private async Task LoadEditorAsync(PdfEditor target, Task<PdfPageViewState?> viewState)
+    {
+        var state = await viewState;
+        if (IsDisposed || target.IsDisposed || !ReferenceEquals(editor, target)) return;
+        target.Viewer.InheritView(state);
+        await target.LoadAsync();
+        if (IsDisposed || target.IsDisposed || !ReferenceEquals(editor, target)) return;
+        if (viewer is not null) viewer.Visible = false;
+        target.Visible = true;
+        target.BringToFront();
+        // Loading while hidden can leave WinForms' scroll range at an earlier
+        // partial page layout. Recalculate it after the surface becomes visible.
+        target.Viewer.PerformLayout();
     }
 
     private void SelectImportPdfs(int index)
@@ -203,7 +199,7 @@ internal sealed class PdfWindow : Form
             UseWaitCursor = true;
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
-            AttachEditor(session);
+            AttachEditor(session, viewer.CapturePageViewAsync());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -211,7 +207,7 @@ internal sealed class PdfWindow : Form
             else session?.Dispose();
             viewer.Visible = true;
             UpdateEditMenus();
-            ShowError("このPDFを編集モードで開けませんでした。\n" + ex.Message);
+            ShowError("このPDFをページ操作モードで開けませんでした。\n" + ex.Message);
         }
         finally { UseWaitCursor = false; }
     }
@@ -219,6 +215,7 @@ internal sealed class PdfWindow : Form
     private void UpdateEditMenus()
     {
         editMode.Checked = editor is not null;
+        UpdateTitleBar();
         cutPage.Enabled = editor?.CanCut == true;
         copyPage.Enabled = editor?.CanCopy == true;
         pastePage.Enabled = editor?.CanPaste == true;
@@ -230,11 +227,8 @@ internal sealed class PdfWindow : Form
 
     private bool TryHandleEditKey(Keys keyData)
     {
-        if (keyData == (Keys.Control | Keys.N))
-        {
-            CancelPageInput(); BeginInvoke(() => { if (!IsDisposed) NewWindowRequested?.Invoke(); }); return true;
-        }
         if (editor is null) return false;
+        if (editor.Viewer.TryHandlePageMoveKey(keyData)) return true;
         if (editor.Viewer.TryHandleZoomKey(keyData)) return true;
         Action? command = keyData switch
         {
@@ -329,5 +323,20 @@ internal sealed class PdfWindow : Form
     {
         if (!ConfirmFinishEditing()) e.Cancel = true;
         base.OnFormClosing(e);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        appliedPageOperationTitle = null;
+        UpdateTitleBar();
+    }
+
+    private void UpdateTitleBar()
+    {
+        bool enabled = editor is not null;
+        if (!IsHandleCreated || appliedPageOperationTitle == enabled) return;
+        NativeWindows.SetPageOperationTitleBar(this, enabled);
+        appliedPageOperationTitle = enabled;
     }
 }

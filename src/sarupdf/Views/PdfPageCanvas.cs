@@ -20,15 +20,19 @@ internal sealed class PdfPageCanvas : ScrollableControl
     private readonly Dictionary<string, NativePdf> documents = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim sourceGate = new(1);
     private int[] order = [];
-    private int anchor, insertion, epoch, layoutWidth;
+    private int anchor, currentPage, insertion, epoch, layoutWidth;
     private int hoverGap = -1;
     private bool rendering, renderRequested;
     private bool sourcesReady;
+    private bool insertionIsGap;
     private float zoom = 1;
+    private PdfPageViewState? initialView;
+    private float? pixelsPerUnit;
     private ContextMenuStrip? popup;
     private int PageGap => Math.Max(32, Font.Height + 12);
 
     internal IReadOnlyList<int> SelectedPages => selected.ToArray();
+    internal int CurrentPage => order.Length == 0 ? -1 : currentPage;
     internal int InsertionIndex => insertion;
     [System.ComponentModel.DefaultValue(false)]
     internal bool HasPendingCut { get; set; }
@@ -49,9 +53,10 @@ internal sealed class PdfPageCanvas : ScrollableControl
     {
         Dock = DockStyle.Fill; AutoScroll = true; TabStop = true;
         BackColor = Color.FromArgb(224, 226, 230);
-        AccessibleName = "PDFページ編集画面";
+        AccessibleName = "PDFページ操作画面";
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.Selectable, true);
     }
+    internal void InheritView(PdfPageViewState? state) => initialView = state;
     internal async Task LoadAsync(string path)
     {
         var loaded = await NativePdf.LoadFromFileAsync(await StorageFile.GetFileFromPathAsync(path));
@@ -65,7 +70,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
         try
         {
             sourcesReady = true;
-            int focus = selected.Count == 0 ? -1 : selected.Min;
+            int focus = CurrentPage;
             var scroll = AutoScrollPosition;
             bool changed = false;
             for (int i = renderPages.Count; i < sources.Count; i++)
@@ -86,7 +91,16 @@ internal sealed class PdfPageCanvas : ScrollableControl
             }
             if (changed)
             {
-                bool followSelection = focus >= 0 && selected.Count > 0 && selected.Min == focus && AutoScrollPosition == scroll;
+                if (initialView is { } state && state.Page < sizes.Count)
+                {
+                    pixelsPerUnit = (float)(state.Width / sizes[state.Page].Width);
+                    focus = state.Page;
+                    selected.Clear(); selected.Add(focus);
+                    anchor = currentPage = insertion = focus;
+                    insertionIsGap = false;
+                    initialView = null;
+                }
+                bool followSelection = focus >= 0 && CurrentPage == focus && AutoScrollPosition == scroll;
                 epoch++; ClearImages(); LayoutPages();
                 if (followSelection) ScrollToPage(focus);
                 RequestRender();
@@ -99,7 +113,9 @@ internal sealed class PdfPageCanvas : ScrollableControl
         order = pages.ToArray(); selected.Clear();
         for (int i = Math.Max(0, start); i < Math.Min(order.Length, start + count); i++) selected.Add(i);
         anchor = Math.Clamp(start, 0, Math.Max(0, order.Length - 1));
+        currentPage = anchor;
         insertion = Math.Clamp(start, 0, order.Length); hoverGap = -1;
+        insertionIsGap = start >= order.Length;
         LayoutPages();
         if (bounds.Count > 0) ScrollToPage(Math.Min(start, bounds.Count - 1));
         SelectionChanged?.Invoke(); Invalidate(); RequestRender();
@@ -112,6 +128,8 @@ internal sealed class PdfPageCanvas : ScrollableControl
     internal void SelectEnd()
     {
         selected.Clear(); insertion = order.Length; hoverGap = insertion;
+        insertionIsGap = true;
+        currentPage = Math.Max(0, order.Length - 1);
         if (bounds.Count > 0) ScrollToPage(bounds.Count - 1);
         SelectionChanged?.Invoke(); Invalidate();
     }
@@ -128,13 +146,15 @@ internal sealed class PdfPageCanvas : ScrollableControl
             anchor = index;
         }
         else { selected.Clear(); selected.Add(index); anchor = index; }
-        insertion = index; hoverGap = -1;
+        currentPage = insertion = index; hoverGap = -1;
+        insertionIsGap = false;
         SelectionChanged?.Invoke(); Invalidate();
     }
     internal void SelectAll()
     {
         selected.Clear(); selected.UnionWith(Enumerable.Range(0, order.Length));
-        anchor = 0; insertion = 0; SelectionChanged?.Invoke(); Invalidate();
+        anchor = insertion = currentPage; insertionIsGap = false;
+        ScrollToPage(currentPage); SelectionChanged?.Invoke(); Invalidate();
     }
     internal Rectangle PageBounds(int index)
     {
@@ -159,10 +179,11 @@ internal sealed class PdfPageCanvas : ScrollableControl
     internal void SelectAt(Point point, Keys modifiers)
     {
         var hit = Hit(point);
-        if (hit.Page >= 0) SelectIndex(hit.Page, modifiers);
+        if (hit.Page >= 0) { SelectIndex(hit.Page, modifiers); ScrollToPage(hit.Page); }
         else if (hit.Gap >= 0)
         {
             selected.Clear(); insertion = hit.Gap; hoverGap = hit.Gap;
+            insertionIsGap = true;
             SelectionChanged?.Invoke(); Invalidate();
         }
     }
@@ -183,6 +204,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
         else
         {
             insertion = hit.Gap >= 0 ? hit.Gap : insertion;
+            if (hit.Gap >= 0) insertionIsGap = true;
             hoverGap = insertion; SelectionChanged?.Invoke(); Invalidate();
             AddPaste(menu, hit.Gap >= 0 ? "ここに貼り付け" : "選択した挿入位置に貼り付け", insertion);
         }
@@ -240,10 +262,33 @@ internal sealed class PdfPageCanvas : ScrollableControl
     internal void CancelPageInput() { pageInput.Clear(); Invalidate(); }
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (TryHandlePageMoveKey(keyData)) return true;
         if (TryHandleZoomKey(keyData)) return true;
         if (keyData == (Keys.Control | Keys.A)) { SelectAll(); return true; }
         if (TryHandlePageKey(keyData)) return true;
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    internal bool TryHandlePageMoveKey(Keys keyData)
+    {
+        var modifiers = keyData & Keys.Modifiers;
+        var key = keyData & Keys.KeyCode;
+        if (modifiers is not (Keys.None or Keys.Shift) ||
+            key is not (Keys.Up or Keys.Down or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown)) return false;
+        CancelPageInput();
+        if (order.Length == 0) return true;
+        bool hadPageFocus = !insertionIsGap;
+        bool backward = key is Keys.Up or Keys.PageUp;
+        int next = key switch
+        {
+            Keys.Home => 0,
+            Keys.End => order.Length - 1,
+            _ => Math.Clamp(hadPageFocus ? currentPage + (backward ? -1 : 1)
+                : insertion + (backward ? -1 : 0), 0, order.Length - 1)
+        };
+        SelectIndex(next, hadPageFocus ? modifiers : Keys.None);
+        ScrollToPage(next);
+        return true;
     }
     protected override void OnMouseWheel(MouseEventArgs e)
     {
@@ -256,7 +301,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
         RequestRender(); Invalidate();
     }
     protected override void OnScroll(ScrollEventArgs se) { base.OnScroll(se); RequestRender(); Invalidate(); }
-    protected override void OnResize(EventArgs e) { base.OnResize(e); LayoutPages(); RequestRender(); }
+    protected override void OnResize(EventArgs e) { base.OnResize(e); LayoutPages(); ScrollToPage(currentPage); RequestRender(); }
     internal bool TryHandleZoomKey(Keys keyData)
     {
         var modifiers = keyData & Keys.Modifiers;
@@ -279,16 +324,21 @@ internal sealed class PdfPageCanvas : ScrollableControl
     private void ScrollToPage(int index)
     {
         if (index < 0 || index >= bounds.Count) return;
-        AutoScrollPosition = new Point(Math.Max(0, -AutoScrollPosition.X), Math.Max(0, bounds[index].Top - PageGap));
+        AutoScrollPosition = new Point(Math.Max(0, -AutoScrollPosition.X),
+            Math.Max(0, bounds[index].Top + bounds[index].Height / 2 - ClientSize.Height / 2));
         RequestRender(); Invalidate();
     }
     private void LayoutPages()
     {
         if (sizes.Count == 0 || ClientSize.Width <= 0) return;
-        int width = Math.Max(120, (int)((ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 48) * zoom));
+        float maximumWidth = Math.Max(sizes.Max(size => size.Width), order.Any(id => id >= sizes.Count) ? 595 : 0);
+        int width = Math.Max(1, (int)((pixelsPerUnit is { } scaleFactor ? maximumWidth * scaleFactor
+            : Math.Max(120, ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 48)) * zoom));
         if (layoutWidth != width) { layoutWidth = width; epoch++; ClearImages(); }
-        float scale = width / Math.Max(sizes.Max(size => size.Width), order.Any(id => id >= sizes.Count) ? 595 : 0);
-        int y = PageGap; bounds.Clear();
+        float scale = width / maximumWidth;
+        int HeightOf(int id) => Math.Max(1, (int)((id < sizes.Count ? sizes[id].Height : 842) * scale));
+        int y = order.Length == 0 ? PageGap : Math.Max(PageGap, (ClientSize.Height - HeightOf(order[0])) / 2);
+        bounds.Clear();
         foreach (int original in order)
         {
             var size = original < sizes.Count ? sizes[original] : new SizeF(595, 842);
@@ -296,7 +346,8 @@ internal sealed class PdfPageCanvas : ScrollableControl
             int h = Math.Max(1, (int)(size.Height * scale));
             bounds.Add(new Rectangle(24 + (width - w) / 2, y, w, h)); y += h + PageGap;
         }
-        AutoScrollMinSize = new Size(width + 48, Math.Max(y + 8, 80)); Invalidate();
+        int bottomPadding = order.Length == 0 ? 8 : Math.Max(8, (ClientSize.Height - HeightOf(order[^1])) / 2 - PageGap);
+        AutoScrollMinSize = new Size(width + 48, Math.Max(y + bottomPadding, 80)); Invalidate();
     }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -310,13 +361,25 @@ internal sealed class PdfPageCanvas : ScrollableControl
             else TextRenderer.DrawText(e.Graphics, "描画中…", Font, rect, Color.Gray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             using var pen = new Pen(selected.Contains(i) ? Color.FromArgb(0, 100, 220) : Color.FromArgb(190, 194, 200), selected.Contains(i) ? 4 : 1);
             e.Graphics.DrawRectangle(pen, rect);
+            if (i == currentPage && rect.Width > 24 && rect.Height > 24)
+            {
+                using var currentPen = new Pen(Color.FromArgb(220, 100, 0), 3);
+                var currentRect = Rectangle.Inflate(rect, -6, -6);
+                e.Graphics.DrawRectangle(currentPen, currentRect);
+                var badge = new Rectangle(Math.Max(8, rect.Left + 12), Math.Max(8, rect.Top + 12),
+                    Math.Min(rect.Width - 24, Font.Height * 12), Font.Height + 12);
+                using var badgeBrush = new SolidBrush(Color.FromArgb(220, 100, 0));
+                e.Graphics.FillRectangle(badgeBrush, badge);
+                TextRenderer.DrawText(e.Graphics, $"現在のページ: {i + 1}", Font, badge, Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
             if (hoverGap != i)
-                TextRenderer.DrawText(e.Graphics, $"{i + 1} ページ" + (selected.Contains(i) ? " ✓" : ""), Font, new Rectangle(rect.Left, rect.Top - Font.Height - 4, rect.Width, Font.Height + 4),
+                TextRenderer.DrawText(e.Graphics, $"{i + 1} ページ" + (selected.Contains(i) ? "  ✓ 選択中" : ""), Font, new Rectangle(rect.Left, rect.Top - Font.Height - 4, rect.Width, Font.Height + 4),
                     selected.Contains(i) ? Color.FromArgb(0, 80, 180) : Color.DimGray, TextFormatFlags.Left);
         }
         if (bounds.Count == 0)
             TextRenderer.DrawText(e.Graphics, HasPendingCut ? "すべてのページを切り取り中です。右クリックで貼り付けてください。"
-                : sourcesReady ? "新規PDFです。右クリックでPDFをインポートするか、別ウィンドウからページを貼り付けてください。" : "PDFを準備しています…",
+                : "PDFを準備しています…",
                 Font, ClientRectangle, Color.DimGray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
         if (hoverGap >= 0 && hoverGap <= bounds.Count && sourcesReady)
         {

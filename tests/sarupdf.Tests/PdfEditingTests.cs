@@ -314,12 +314,12 @@ internal static class PdfEditingTests
     internal static Point VisibleCenter(PdfPageCanvas canvas, int index)
     {
         var rectangle = Rectangle.Intersect(canvas.PageBounds(index), canvas.ClientRectangle);
-        Check(rectangle.Width > 0 && rectangle.Height > 0);
+        if (rectangle.Width <= 0 || rectangle.Height <= 0) throw new Exception($"Page {index}: {canvas.PageBounds(index)}, client {canvas.ClientRectangle}, scroll {canvas.AutoScrollPosition}, min {canvas.AutoScrollMinSize}, vertical {canvas.VerticalScroll.Maximum} visible {canvas.Visible}");
         return new Point(rectangle.Left + rectangle.Width / 2, rectangle.Top + rectangle.Height / 2);
     }
     internal static async Task ExpectCanvasColorAsync(PdfPageCanvas canvas, int index, Color color)
     {
-        await WaitUntilAsync(() => canvas.IsPageRendered(index));
+        await WaitUntilAsync(() => canvas.Visible && canvas.IsPageRendered(index));
         using var bitmap = new Bitmap(canvas.Width, canvas.Height);
         canvas.DrawToBitmap(bitmap, canvas.ClientRectangle);
         var point = VisibleCenter(canvas, index);

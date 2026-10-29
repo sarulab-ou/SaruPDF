@@ -4,6 +4,21 @@ namespace SaruPdf;
 
 internal static class NativeWindows
 {
+    internal static readonly Color PageOperationTitleColor = Color.FromArgb(32, 88, 150);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint window, int attribute, ref uint value, int size);
+
+    internal static void SetPageOperationTitleBar(Form form, bool enabled)
+    {
+        // Caption/text colors are supported by DWM starting with Windows 11.
+        if (!form.IsHandleCreated || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+        uint caption = enabled ? (uint)ColorTranslator.ToWin32(PageOperationTitleColor) : 0xFFFFFFFF;
+        uint text = enabled ? 0x00FFFFFF : 0xFFFFFFFF;
+        _ = DwmSetWindowAttribute(form.Handle, 35, ref caption, sizeof(uint)); // DWMWA_CAPTION_COLOR
+        _ = DwmSetWindowAttribute(form.Handle, 36, ref text, sizeof(uint)); // DWMWA_TEXT_COLOR
+    }
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool AllowSetForegroundWindow(uint processId);
