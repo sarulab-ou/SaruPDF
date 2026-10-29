@@ -23,11 +23,15 @@ foreach ($line in $checksumLines) {
 $notes = Join-Path $ProjectRoot "docs/releases/v$version.md"
 if (!(Test-Path -LiteralPath $notes)) { throw 'Release notes missing.' }
 $root = Quote-Bash (ConvertTo-WslPath $ProjectRoot)
+$status = & wsl.exe bash -lc "cd $root && git status --porcelain"
+if ($LASTEXITCODE -ne 0 -or $status) { throw '未コミット変更があります。コミット・push 後に実行してください。' }
+$revision = & wsl.exe bash -lc "cd $root && git rev-parse HEAD"
+if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[a-f0-9]{40}$') { throw 'Git コミットを取得できません。' }
 # No commit, push, visibility changes, clobber or replacement of existing assets.
 $arguments = @('release', 'create', "v$version", '--repo', 'sarulab-ou/SaruPDF', '--title', "SaruPDF $version", '--notes-file', (ConvertTo-WslPath $notes))
 if ($Draft) { $arguments += '--draft' }
 $arguments += $assets | ForEach-Object { ConvertTo-WslPath (Join-Path $output $_) }
 $quoted = ($arguments | ForEach-Object { Quote-Bash $_ }) -join ' '
-$command = "cd $root && test -z `"`$(git status --porcelain)`" && revision=`$(git rev-parse HEAD) && gh api repos/sarulab-ou/SaruPDF/commits/`"`$revision`" --silent && gh $quoted --target `"`$revision`""
+$command = "cd $root && gh api repos/sarulab-ou/SaruPDF/commits/$revision --silent && gh $quoted --target $revision"
 & wsl.exe bash -lc $command
 if ($LASTEXITCODE -ne 0) { throw 'GitHub リリースの作成に失敗しました。未コミット変更・push 状態・認証・同名リリースを確認してください。' }
