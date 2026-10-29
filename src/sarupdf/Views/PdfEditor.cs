@@ -14,6 +14,7 @@ internal sealed class PdfEditor : UserControl
     internal bool CanPaste => Session.HasPendingCut || clipboard.Current is not null;
     internal event Action? StateChanged;
     internal event Action<Exception>? Failed;
+    internal event Action<int>? ImportRequested;
 
     internal PdfEditor(PdfEditSession session, PdfPageClipboard? clipboard = null)
     {
@@ -25,6 +26,7 @@ internal sealed class PdfEditor : UserControl
         Viewer.CutRequested += Cut;
         Viewer.CopyRequested += Copy;
         Viewer.PasteRequested += PasteAt;
+        Viewer.ImportRequested += index => ImportRequested?.Invoke(index);
         Viewer.UndoRequested += Undo;
         Viewer.RedoRequested += Redo;
         Viewer.Failed += ex => Failed?.Invoke(ex);
@@ -60,6 +62,11 @@ internal sealed class PdfEditor : UserControl
         });
     }
     internal void Undo() => Execute(() => { if (Session.Undo()) RefreshPages(Math.Clamp(SelectedIndex, 0, Session.PageCount)); });
+    internal void ImportFiles(int index, IEnumerable<string> paths) => Execute(() =>
+    {
+        int count = Session.ImportFiles(index, paths);
+        RefreshPages(index, count);
+    });
     internal void Redo() => Execute(() => { if (Session.Redo()) RefreshPages(Math.Clamp(SelectedIndex, 0, Session.PageCount)); });
     private void Execute(Action action)
     {

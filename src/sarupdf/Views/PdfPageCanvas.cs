@@ -23,6 +23,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
     private int anchor, insertion, epoch, layoutWidth;
     private int hoverGap = -1;
     private bool rendering, renderRequested;
+    private bool sourcesReady;
     private float zoom = 1;
     private ContextMenuStrip? popup;
     private int PageGap => Math.Max(32, Font.Height + 12);
@@ -39,6 +40,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
     internal event Action? CutRequested;
     internal event Action? CopyRequested;
     internal event Action<int>? PasteRequested;
+    internal event Action<int>? ImportRequested;
     internal event Action? UndoRequested;
     internal event Action? RedoRequested;
     internal event Action<Exception>? Failed;
@@ -62,6 +64,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
         await sourceGate.WaitAsync();
         try
         {
+            sourcesReady = true;
             int focus = selected.Count == 0 ? -1 : selected.Min;
             var scroll = AutoScrollPosition;
             bool changed = false;
@@ -183,6 +186,9 @@ internal sealed class PdfPageCanvas : ScrollableControl
             hoverGap = insertion; SelectionChanged?.Invoke(); Invalidate();
             AddPaste(menu, hit.Gap >= 0 ? "ここに貼り付け" : "選択した挿入位置に貼り付け", insertion);
         }
+        int importIndex = hit.Page >= 0 ? hit.Page : insertion;
+        menu.Items.Add(new ToolStripMenuItem("ここにPDFをインポート…", null, (_, _) => ImportRequested?.Invoke(importIndex))
+        { Name = "ImportPdf", Enabled = !HasPendingCut });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("すべてのページを選択", null, (_, _) => SelectAll());
         menu.Items.Add("元に戻す", null, (_, _) => UndoRequested?.Invoke());
@@ -234,6 +240,7 @@ internal sealed class PdfPageCanvas : ScrollableControl
     internal void CancelPageInput() { pageInput.Clear(); Invalidate(); }
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (TryHandleZoomKey(keyData)) return true;
         if (keyData == (Keys.Control | Keys.A)) { SelectAll(); return true; }
         if (TryHandlePageKey(keyData)) return true;
         return base.ProcessCmdKey(ref msg, keyData);
@@ -250,7 +257,25 @@ internal sealed class PdfPageCanvas : ScrollableControl
     }
     protected override void OnScroll(ScrollEventArgs se) { base.OnScroll(se); RequestRender(); Invalidate(); }
     protected override void OnResize(EventArgs e) { base.OnResize(e); LayoutPages(); RequestRender(); }
-    private void SetZoom(float value) { zoom = Math.Clamp(value, .25f, 3f); LayoutPages(); RequestRender(); }
+    internal bool TryHandleZoomKey(Keys keyData)
+    {
+        var modifiers = keyData & Keys.Modifiers;
+        if (modifiers is not Keys.Control && modifiers != (Keys.Control | Keys.Shift)) return false;
+        var key = keyData & Keys.KeyCode;
+        if (key is Keys.Oemplus or Keys.Add) { CancelPageInput(); SetZoom(zoom * 1.2f); return true; }
+        if (key is Keys.OemMinus or Keys.Subtract) { CancelPageInput(); SetZoom(zoom / 1.2f); return true; }
+        return false;
+    }
+    private void SetZoom(float value)
+    {
+        int centerY = -AutoScrollPosition.Y + ClientSize.Height / 2;
+        int page = bounds.FindIndex(rect => rect.Bottom > centerY);
+        float fraction = page < 0 ? 0 : Math.Clamp((centerY - bounds[page].Top) / (float)bounds[page].Height, 0, 1);
+        zoom = Math.Clamp(value, .25f, 3f); LayoutPages();
+        if (page >= 0 && page < bounds.Count)
+            AutoScrollPosition = new Point(Math.Max(0, -AutoScrollPosition.X), Math.Max(0, (int)(bounds[page].Top + bounds[page].Height * fraction - ClientSize.Height / 2)));
+        RequestRender(); Invalidate();
+    }
     private void ScrollToPage(int index)
     {
         if (index < 0 || index >= bounds.Count) return;
@@ -290,8 +315,10 @@ internal sealed class PdfPageCanvas : ScrollableControl
                     selected.Contains(i) ? Color.FromArgb(0, 80, 180) : Color.DimGray, TextFormatFlags.Left);
         }
         if (bounds.Count == 0)
-            TextRenderer.DrawText(e.Graphics, pdf is null ? "PDFを準備しています…" : "すべてのページを切り取り中です。右クリックで貼り付けてください。", Font, ClientRectangle, Color.DimGray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
-        if (hoverGap >= 0 && hoverGap <= bounds.Count && pdf is not null)
+            TextRenderer.DrawText(e.Graphics, HasPendingCut ? "すべてのページを切り取り中です。右クリックで貼り付けてください。"
+                : sourcesReady ? "新規PDFです。右クリックでPDFをインポートするか、別ウィンドウからページを貼り付けてください。" : "PDFを準備しています…",
+                Font, ClientRectangle, Color.DimGray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+        if (hoverGap >= 0 && hoverGap <= bounds.Count && sourcesReady)
         {
             var point = GapPoint(hoverGap);
             using var pen = new Pen(Color.FromArgb(0, 100, 220), 3);

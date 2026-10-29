@@ -24,8 +24,8 @@ SDK 未導入の場合は次を実行できます。Microsoft 公式 ZIP と公�
 GitHub で配布する場合は、ソースをコミット・push した後、`scripts/Publish-GitHubRelease.ps1` を実行します。WSL の GitHub CLI 認証が必要です。スクリプトは既存リリースの上書き、リポジトリの公開範囲の変更、コミットを自動で行いません。
 
 ```text
-artifacts/release/SaruPDF-0.5.0-win-x64/SaruPDF.exe
-artifacts/release/SaruPDF-0.5.0-Setup-x64.exe
+artifacts/release/SaruPDF-0.6.0-win-x64/SaruPDF.exe
+artifacts/release/SaruPDF-0.6.0-Setup-x64.exe
 ```
 
 NuGet は `Microsoft.Web.WebView2 1.0.4314.35` と、MIT版の `PDFsharp 6.2.4` を完全固定し、`packages.lock.json` を保存しています。スクリプトは `--locked-mode` で復元します。SDK・パッケージキャッシュ・ビルド生成物・セットアップ EXE は Git 管理対象外です。依存を意図的に変更したときだけ `dotnet restore --force-evaluate` でロックを更新してください。PDFsharpとその依存ライセンスは配布フォルダーの `third-party-licenses/` に同梱します。
@@ -72,6 +72,12 @@ TFMは `net10.0-windows10.0.19041.0`、最低OSはWindows 10 build 17763です�
 
 コピーは文書を変更しません。クリップボード変更の通知で別ウィンドウのメニューも更新し、編集画面のDispose時には通知購読を解除します。貼り付け先にローカルの切り取りがある場合はそれを優先し、コピーの挿入と混同しないようにします。
 
+Ctrl+Nは閲覧・編集・起動画面の共通コマンドとして処理し、アプリケーションコンテキストに新規ウィンドウ作成を要求します。新規文書は `PdfEditSession.CreateNew()` の0ページ状態で、ダミーの白紙PDFを作りません。最初の保存でパスが確定し、文書管理のパス登録と閲覧用WebView2の作成を行います。新規文書は `WindowCatalog.MarkOccupied` で通常の空ウィンドウ再利用から除外し、Ctrl+O等で開いたPDFが新規文書を置き換えないようにします。
+
+PDFインポートはページ境界の座標から挿入位置を取得し、複数選択可能なファイルダイアログを開きます。モデルはすべてのファイルを読み込んで検証した後にUndoを一度だけ記録し、全ページをまとめて挿入します。途中のファイルで失敗した場合は文書と履歴を変更しません。アプリ内のコピー用クリップボードは変更しません。
+
+編集画面のCtrl+Oemplus / Ctrl+Shift+Oemplus / Ctrl+Addを拡大、Ctrl+OemMinus / Ctrl+Subtractを縮小として処理します。拡大縮小時は画面中央にあるページ内の相対位置を維持します。
+
 ## 対応範囲・制限
 
 数字＋Enterによるページ移動は `Views/PageNumberInput.cs` と `PdfView.TryHandlePageKey` で処理します。WebView2 の `AllowHostInputProcessing` を有効にして通常の数字キーも受け取り、常設ツールバーを追加せず一時的な案内だけを表示します。テンキー、Backspace、Escに対応し、ウィンドウの非アクティブ化で入力を取り消します。修飾キー付きの入力はこの処理で消費しません。
@@ -89,7 +95,7 @@ TFMは `net10.0-windows10.0.19041.0`、最低OSはWindows 10 build 17763です�
 
 ## 確認
 
-`scripts/Test.ps1`: **53 件成功**。0.4.0までの45件に、PDF間コピーの7件と2ウィンドウ間の描画・保存の1件を追加しました。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
+`scripts/Test.ps1`: **60 件成功**。0.5.0までの53件に、新規文書・インポート・予約されたウィンドウのモデル4件、キー拡大縮小・境界インポート・Ctrl+Nの画面検証3件を追加しました。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
 
 `scripts/Test-Installer.ps1` は生成したセットアップを作業フォルダー内の専用ディレクトリにサイレント導入・更新・削除し、候補登録や既定設定・ユーザーファイル保持を検証します。**これは現在のユーザーに一時的な SaruPDF 登録とスタートメニューを作る試験です。** 既存の SaruPDF 登録がある場合は上書きせず停止します。結果は検証記録を参照してください。
 

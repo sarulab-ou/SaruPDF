@@ -199,14 +199,14 @@ internal static class PdfCopyTests
         target.Close(); Check(target.IsDisposed);
     });
 
-    private static PdfEditor Editor(PdfWindow window) => (PdfEditor)typeof(PdfWindow).GetField("editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+    internal static PdfEditor Editor(PdfWindow window) => (PdfEditor)typeof(PdfWindow).GetField("editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
     private static ToolStripMenuItem Menu(PdfWindow window, string field) => (ToolStripMenuItem)typeof(PdfWindow).GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
-    private static void Key(PdfWindow window, Keys keys)
+    internal static void Key(PdfWindow window, Keys keys)
     {
         var method = typeof(PdfWindow).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
         Check((bool)method.Invoke(window, [new Message(), keys])!);
     }
-    private static void Content(string path, params string[] expected)
+    internal static void Content(string path, params string[] expected)
     {
         using var pdf = PdfReader.Open(path, PdfDocumentOpenMode.Modify); Check(pdf.PageCount == expected.Length);
         for (int i = 0; i < expected.Length; i++)

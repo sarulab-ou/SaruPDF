@@ -29,6 +29,7 @@ internal sealed class PdfWindow : Form
     private PdfView? ActiveViewer => editor is null ? viewer : null;
 
     public event Action<string[]>? OpenRequested;
+    public event Action? NewWindowRequested;
     public event Action<PdfDocument>? DocumentPathChanged;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal Func<string, bool>? CanUseDocumentPath { get; set; }
@@ -45,6 +46,7 @@ internal sealed class PdfWindow : Form
         AppIcon.Apply(this);
         var menu = new MenuStrip { Padding = new Padding(8, 5, 8, 5), BackColor = Color.FromArgb(247, 248, 251) };
         var file = new ToolStripMenuItem("ファイル(&F)");
+        file.DropDownItems.Add(new ToolStripMenuItem("新規ウィンドウ(&N)", null, (_, _) => NewWindowRequested?.Invoke()) { ShortcutKeys = Keys.Control | Keys.N });
         file.DropDownItems.Add(new ToolStripMenuItem("PDF を開く(&O)…", null, (_, _) => SelectFiles()) { ShortcutKeys = Keys.Control | Keys.O });
         file.DropDownItems.Add(save);
         file.DropDownItems.Add(saveAs);
@@ -99,20 +101,59 @@ internal sealed class PdfWindow : Form
 
     public void SetDocument(PdfDocument document)
     {
-        if (viewer is not null) throw new InvalidOperationException("このウィンドウには既に PDF が割り当てられています。");
+        if (viewer is not null || editor is not null) throw new InvalidOperationException("このウィンドウには既に PDF が割り当てられています。");
         this.document = document;
         Text = $"{document.FileName}（{document.Path}）";
         pathBox.Text = document.Path;
         foreach (Control child in content.Controls) child.Dispose();
         content.Controls.Clear();
+        CreateViewer(document);
+        editMode.Enabled = true;
+        if (Visible) _ = viewer!.LoadAsync();
+    }
+
+    private void CreateViewer(PdfDocument document)
+    {
         viewer = new PdfView(document, userDataFolder) { Dock = DockStyle.Fill };
         viewer.OpenRequested += path => OpenRequested?.Invoke([path]);
         viewer.OpenDialogRequested += SelectFiles;
         viewer.CloseRequested += Close;
         viewer.CommandKeyRequested += TryHandleEditKey;
         content.Controls.Add(viewer);
-        editMode.Enabled = true;
-        if (Visible) _ = viewer.LoadAsync();
+    }
+
+    internal void SetNewDocument()
+    {
+        if (viewer is not null || editor is not null) throw new InvalidOperationException("文書が割り当てられています。");
+        foreach (Control child in content.Controls) child.Dispose();
+        content.Controls.Clear();
+        Text = "無題"; pathBox.Text = "新規PDF（未保存）";
+        AttachEditor(PdfEditSession.CreateNew());
+        editMode.Enabled = false;
+    }
+
+    private void AttachEditor(PdfEditSession session)
+    {
+        editor = new PdfEditor(session, pageClipboard);
+        editor.StateChanged += UpdateEditMenus;
+        editor.Failed += ex => ShowError("ページを編集できませんでした。\n" + ex.Message);
+        editor.ImportRequested += SelectImportPdfs;
+        if (viewer is not null) viewer.Visible = false;
+        content.Controls.Add(editor); editor.BringToFront();
+        UpdateEditMenus();
+        _ = editor.LoadAsync();
+    }
+
+    private void SelectImportPdfs(int index)
+    {
+        if (editor is null || editor.Session.HasPendingCut) return;
+        CancelPageInput();
+        using var dialog = new OpenFileDialog
+        {
+            Title = "挿入するPDFを選択（全ページをインポート）", Filter = "PDF ファイル (*.pdf)|*.pdf",
+            Multiselect = true, CheckFileExists = true, RestoreDirectory = true
+        };
+        if (dialog.ShowDialog(this) == DialogResult.OK) editor.ImportFiles(index, dialog.FileNames);
     }
 
     public void ShowError(string message)
@@ -152,6 +193,7 @@ internal sealed class PdfWindow : Form
             editor.Dispose(); editor = null;
             viewer.Visible = true;
             viewer.NavigateDocument(document);
+            _ = viewer.LoadAsync();
             UpdateEditMenus();
             return;
         }
@@ -161,13 +203,7 @@ internal sealed class PdfWindow : Form
             UseWaitCursor = true;
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
-            editor = new PdfEditor(session, pageClipboard);
-            editor.StateChanged += UpdateEditMenus;
-            editor.Failed += ex => ShowError("ページを編集できませんでした。\n" + ex.Message);
-            viewer.Visible = false;
-            content.Controls.Add(editor); editor.BringToFront();
-            UpdateEditMenus();
-            _ = editor.LoadAsync();
+            AttachEditor(session);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -188,13 +224,18 @@ internal sealed class PdfWindow : Form
         pastePage.Enabled = editor?.CanPaste == true;
         undoEdit.Enabled = editor?.Session.CanUndo == true;
         redoEdit.Enabled = editor?.Session.CanRedo == true;
-        save.Enabled = editor is not null && !editor.Session.HasPendingCut && editor.Session.IsDirty;
-        saveAs.Enabled = editor is not null && !editor.Session.HasPendingCut;
+        save.Enabled = editor is not null && editor.Session.PageCount > 0 && !editor.Session.HasPendingCut && editor.Session.IsDirty;
+        saveAs.Enabled = editor is not null && editor.Session.PageCount > 0 && !editor.Session.HasPendingCut;
     }
 
     private bool TryHandleEditKey(Keys keyData)
     {
+        if (keyData == (Keys.Control | Keys.N))
+        {
+            CancelPageInput(); BeginInvoke(() => { if (!IsDisposed) NewWindowRequested?.Invoke(); }); return true;
+        }
         if (editor is null) return false;
+        if (editor.Viewer.TryHandleZoomKey(keyData)) return true;
         Action? command = keyData switch
         {
             Keys.Control | Keys.X => () => editor?.Cut(),
@@ -222,35 +263,49 @@ internal sealed class PdfWindow : Form
 
     private bool SaveEdits(bool choosePath)
     {
-        if (editor is null || document is null) return false;
+        if (editor is null) return false;
         if (editor.Session.HasPendingCut)
         {
             ShowError("切り取り中のページを貼り付けるか、元に戻してから保存してください。");
             return false;
         }
+        if (editor.Session.PageCount == 0)
+        {
+            ShowError("ページを貼り付けるかPDFをインポートしてから保存してください。"); return false;
+        }
         if (!choosePath && !editor.Session.IsDirty) return true;
-        string path = document.Path;
-        if (choosePath)
+        string? path = document?.Path;
+        if (choosePath || path is null)
         {
             using var dialog = new SaveFileDialog
             {
                 Title = "編集したPDFを保存", Filter = "PDF ファイル (*.pdf)|*.pdf", DefaultExt = "pdf",
-                AddExtension = true, FileName = document.FileName, InitialDirectory = Path.GetDirectoryName(document.Path),
+                AddExtension = true, FileName = document?.FileName ?? "無題.pdf",
+                InitialDirectory = document is null ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : Path.GetDirectoryName(document.Path),
                 OverwritePrompt = true
             };
             if (dialog.ShowDialog(this) != DialogResult.OK) return false;
             path = Path.GetFullPath(dialog.FileName);
         }
-        if (CanUseDocumentPath?.Invoke(path) == false)
-        {
-            ShowError("保存先のPDFは別のウィンドウで開かれています。そのウィンドウを閉じるか、別の名前で保存してください。");
-            return false;
-        }
+        return SaveToPath(path!);
+    }
+
+    internal bool SaveToPath(string path)
+    {
+        if (editor is null) return false;
         try
         {
+            path = Path.GetFullPath(path);
+            if (CanUseDocumentPath?.Invoke(path) == false)
+            {
+                ShowError("保存先のPDFは別のウィンドウで開かれています。そのウィンドウを閉じるか、別の名前で保存してください。");
+                return false;
+            }
             UseWaitCursor = true;
             editor.Session.Save(path);
             document = DocumentPath.Open(path);
+            if (viewer is null) { CreateViewer(document); viewer!.Visible = false; }
+            editMode.Enabled = true;
             pathBox.Text = document.Path;
             Text = $"{document.FileName}（{document.Path}）";
             DocumentPathChanged?.Invoke(document);

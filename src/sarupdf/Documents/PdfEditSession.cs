@@ -31,6 +31,12 @@ internal sealed class PdfEditSession : IDisposable
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
 
+    private PdfEditSession()
+    {
+        SourcePath = ""; original = []; pages = []; savedPages = []; savedHash = [];
+    }
+    internal static PdfEditSession CreateNew() => new();
+
     internal PdfEditSession(string path)
     {
         SourcePath = DocumentPath.Open(path).Path;
@@ -92,9 +98,32 @@ internal sealed class PdfEditSession : IDisposable
         if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてからコピーを挿入してください。");
         if (index < 0 || index > PageCount) throw new ArgumentOutOfRangeException(nameof(index));
         Remember();
+        InsertCopy(index, bundle);
+    }
+
+    private void InsertCopy(int index, PdfPageBundle bundle)
+    {
         int first = TotalPages + imported.Count;
         for (int i = 0; i < bundle.PageCount; i++) imported.Add(new ImportedPage(bundle, i));
         pages.InsertRange(index, Enumerable.Range(first, bundle.PageCount));
+    }
+
+    internal int ImportFiles(int index, IEnumerable<string> paths)
+    {
+        if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてからインポートしてください。");
+        if (index < 0 || index > PageCount) throw new ArgumentOutOfRangeException(nameof(index));
+        List<PdfPageBundle> bundles = [];
+        foreach (string path in paths)
+        {
+            using var input = new PdfEditSession(path);
+            bundles.Add(input.Copy(Enumerable.Range(0, input.PageCount)));
+        }
+        if (bundles.Count == 0) throw new ArgumentException("インポートするPDFを選択してください。", nameof(paths));
+        // Read and validate all input before changing this document or its history.
+        Remember();
+        int count = 0;
+        foreach (var bundle in bundles) { InsertCopy(index + count, bundle); count += bundle.PageCount; }
+        return count;
     }
 
     internal bool Undo() => Restore(undo, redo);
@@ -129,8 +158,13 @@ internal sealed class PdfEditSession : IDisposable
 
     internal IReadOnlyList<PdfRenderPage> RenderPages()
     {
-        string originalPath = WriteOriginalPreview();
-        List<PdfRenderPage> result = [.. Enumerable.Range(0, TotalPages).Select(i => new PdfRenderPage(originalPath, (uint)i))];
+        List<PdfRenderPage> result = [];
+        if (TotalPages > 0)
+        {
+            string originalPath = WriteOriginalPreview();
+            result.AddRange(Enumerable.Range(0, TotalPages).Select(i => new PdfRenderPage(originalPath, (uint)i)));
+        }
+        if (imported.Count > 0) Directory.CreateDirectory(previewDirectory);
         foreach (var page in imported)
         {
             if (!bundlePreviews.TryGetValue(page.Bundle.Id, out string? path))
@@ -146,7 +180,7 @@ internal sealed class PdfEditSession : IDisposable
     private byte[] Serialize()
     {
         using var input = new MemoryStream(original, false);
-        using var pdf = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
+        using var pdf = TotalPages == 0 ? new PdfSharp.Pdf.PdfDocument() : PdfReader.Open(input, PdfDocumentOpenMode.Modify);
         // Move the original page references in place, preserving their catalog
         // links. Remove/Add re-registers existing objects in PDFsharp 6.2.4.
         List<int> current = [.. Enumerable.Range(0, TotalPages)];
@@ -189,6 +223,7 @@ internal sealed class PdfEditSession : IDisposable
     internal void Save(string path)
     {
         if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてから保存してください。");
+        if (PageCount == 0) throw new InvalidOperationException("ページを貼り付けるかPDFをインポートしてから保存してください。");
         var target = Path.GetFullPath(path);
         if (!string.Equals(Path.GetExtension(target), ".pdf", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("保存先には .pdf ファイルを指定してください。");

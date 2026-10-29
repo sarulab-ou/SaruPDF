@@ -5,6 +5,7 @@ internal sealed class WindowCatalog<T> where T : class
 {
     private readonly Dictionary<string, T> documents = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<T> windows = [];
+    private readonly HashSet<T> occupied = new(ReferenceEqualityComparer.Instance);
     public IReadOnlyList<T> Windows => windows;
     public T? EmptyWindow { get; private set; }
     public T? LastActive { get; private set; }
@@ -21,7 +22,13 @@ internal sealed class WindowCatalog<T> where T : class
     public void Assign(string path, T window)
     {
         documents.Add(path, window);
-        if (ReferenceEquals(EmptyWindow, window)) EmptyWindow = null;
+        MarkOccupied(window);
+    }
+
+    public void MarkOccupied(T window)
+    {
+        occupied.Add(window);
+        if (ReferenceEquals(EmptyWindow, window)) EmptyWindow = windows.LastOrDefault(candidate => !occupied.Contains(candidate));
     }
 
     public void Activate(T window) => LastActive = window;
@@ -33,14 +40,16 @@ internal sealed class WindowCatalog<T> where T : class
         foreach (var key in documents.Where(pair => ReferenceEquals(pair.Value, window)).Select(pair => pair.Key).ToArray())
             documents.Remove(key);
         documents[path] = window;
+        MarkOccupied(window);
     }
 
     public void Remove(T window)
     {
         windows.Remove(window);
+        occupied.Remove(window);
         foreach (var key in documents.Where(pair => ReferenceEquals(pair.Value, window)).Select(pair => pair.Key).ToArray())
             documents.Remove(key);
-        if (ReferenceEquals(EmptyWindow, window)) EmptyWindow = null;
+        if (ReferenceEquals(EmptyWindow, window)) EmptyWindow = windows.LastOrDefault(candidate => !occupied.Contains(candidate));
         if (ReferenceEquals(LastActive, window)) LastActive = windows.LastOrDefault();
     }
 }
