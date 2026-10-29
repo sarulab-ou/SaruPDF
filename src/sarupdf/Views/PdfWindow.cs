@@ -18,8 +18,11 @@ internal sealed class PdfWindow : Form
     private readonly PdfPageClipboard pageClipboard;
     private PdfDocument? document;
     private PdfEditor? editor;
-    private bool? appliedPageOperationTitle;
+    private PdfCommentEditor? commentEditor;
+    private int? appliedTitleMode;
+    private PdfEditSession? ActiveSession => editor?.Session ?? commentEditor?.Session;
     private readonly ToolStripMenuItem editMode = new("ページ操作モード(&M)") { Name = "EditMode", Enabled = false };
+    private readonly ToolStripMenuItem commentMode = new("コメントモード(&C)") { Name = "CommentMode", Enabled = false };
     private readonly ToolStripMenuItem cutPage = new("ページを切り取り(&T)") { ShortcutKeys = Keys.Control | Keys.X, Enabled = false };
     private readonly ToolStripMenuItem copyPage = new("ページをコピー(&C)") { ShortcutKeys = Keys.Control | Keys.C, Enabled = false };
     private readonly ToolStripMenuItem pastePage = new("ページを貼り付け(&P)") { ShortcutKeys = Keys.Control | Keys.V, Enabled = false };
@@ -27,7 +30,7 @@ internal sealed class PdfWindow : Form
     private readonly ToolStripMenuItem redoEdit = new("やり直し(&R)") { ShortcutKeys = Keys.Control | Keys.Y, Enabled = false };
     private readonly ToolStripMenuItem save = new("保存(&S)") { ShortcutKeys = Keys.Control | Keys.S, Enabled = false };
     private readonly ToolStripMenuItem saveAs = new("名前を付けて保存(&A)…") { ShortcutKeys = Keys.Control | Keys.Shift | Keys.S, Enabled = false };
-    private PdfView? ActiveViewer => editor is null ? viewer : null;
+    private PdfView? ActiveViewer => editor is null && commentEditor is null ? viewer : null;
 
     public event Action<string[]>? OpenRequested;
     public event Action<PdfDocument>? DocumentPathChanged;
@@ -55,13 +58,14 @@ internal sealed class PdfWindow : Form
         file.DropDownItems.Add(new ToolStripMenuItem("このウィンドウを閉じる(&W)", null, (_, _) => Close()) { ShortcutKeys = Keys.Control | Keys.W });
         menu.Items.Add(file);
         var edit = new ToolStripMenuItem("編集(&E)");
-        edit.DropDownItems.AddRange([editMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
+        edit.DropDownItems.AddRange([editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
         editMode.Click += (_, _) => ToggleEditMode();
+        commentMode.Click += (_, _) => ToggleCommentMode();
         cutPage.Click += (_, _) => editor?.Cut();
         copyPage.Click += (_, _) => editor?.Copy();
         pastePage.Click += (_, _) => editor?.Paste();
-        undoEdit.Click += (_, _) => editor?.Undo();
-        redoEdit.Click += (_, _) => editor?.Redo();
+        undoEdit.Click += (_, _) => { if (commentEditor is not null) commentEditor.Undo(); else editor?.Undo(); };
+        redoEdit.Click += (_, _) => { if (commentEditor is not null) commentEditor.Redo(); else editor?.Redo(); };
         menu.Items.Add(edit);
         MainMenuStrip = menu;
 
@@ -92,7 +96,7 @@ internal sealed class PdfWindow : Form
 
     public void SetDocument(PdfDocument document)
     {
-        if (viewer is not null || editor is not null) throw new InvalidOperationException("このウィンドウには既に PDF が割り当てられています。");
+        if (viewer is not null || editor is not null || commentEditor is not null) throw new InvalidOperationException("このウィンドウには既に PDF が割り当てられています。");
         this.document = document;
         Text = $"{document.FileName}（{document.Path}）";
         pathBox.Text = document.Path;
@@ -100,6 +104,7 @@ internal sealed class PdfWindow : Form
         content.Controls.Clear();
         CreateViewer(document);
         editMode.Enabled = true;
+        commentMode.Enabled = true;
         if (Visible) _ = viewer!.LoadAsync();
     }
 
@@ -182,6 +187,7 @@ internal sealed class PdfWindow : Form
     internal void ToggleEditMode()
     {
         if (document is null || viewer is null) return;
+        if (commentEditor is not null) { ToggleCommentMode(); if (commentEditor is not null) return; }
         if (editor is not null)
         {
             if (!ConfirmFinishEditing()) return;
@@ -212,21 +218,76 @@ internal sealed class PdfWindow : Form
         finally { UseWaitCursor = false; }
     }
 
+    internal void ToggleCommentMode()
+    {
+        if (document is null || viewer is null) return;
+        if (editor is not null) { ToggleEditMode(); if (editor is not null) return; }
+        if (commentEditor is not null)
+        {
+            if (!ConfirmFinishEditing()) return;
+            content.Controls.Remove(commentEditor); commentEditor.Dispose(); commentEditor = null;
+            viewer.Visible = true; viewer.NavigateDocument(document); _ = viewer.LoadAsync();
+            UpdateEditMenus(); return;
+        }
+        PdfEditSession? session = null;
+        try
+        {
+            viewer.CancelPageInput();
+            session = new PdfEditSession(document.Path);
+            commentEditor = new PdfCommentEditor(session) { Visible = false };
+            commentEditor.StateChanged += UpdateEditMenus;
+            commentEditor.Failed += ex => ShowError("コメントを処理できませんでした。\n" + ex.Message);
+            content.Controls.Add(commentEditor); UpdateEditMenus();
+            _ = LoadCommentEditorAsync(commentEditor, viewer.CapturePageViewAsync());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            if (commentEditor is not null) { content.Controls.Remove(commentEditor); commentEditor.Dispose(); commentEditor = null; }
+            else session?.Dispose();
+            viewer.Visible = true; UpdateEditMenus(); ShowError("コメントモードで開けませんでした。\n" + ex.Message);
+        }
+    }
+
+    private async Task LoadCommentEditorAsync(PdfCommentEditor target, Task<PdfPageViewState?> viewState)
+    {
+        var state = await viewState;
+        if (IsDisposed || target.IsDisposed || !ReferenceEquals(commentEditor, target)) return;
+        await target.LoadAsync(state);
+        if (IsDisposed || target.IsDisposed || !ReferenceEquals(commentEditor, target)) return;
+        if (viewer is not null) viewer.Visible = false;
+        target.Visible = true; target.BringToFront(); target.Viewer.PerformLayout(); target.Viewer.Focus();
+    }
+
     private void UpdateEditMenus()
     {
         editMode.Checked = editor is not null;
+        commentMode.Checked = commentEditor is not null;
         UpdateTitleBar();
         cutPage.Enabled = editor?.CanCut == true;
         copyPage.Enabled = editor?.CanCopy == true;
         pastePage.Enabled = editor?.CanPaste == true;
-        undoEdit.Enabled = editor?.Session.CanUndo == true;
-        redoEdit.Enabled = editor?.Session.CanRedo == true;
-        save.Enabled = editor is not null && editor.Session.PageCount > 0 && !editor.Session.HasPendingCut && editor.Session.IsDirty;
-        saveAs.Enabled = editor is not null && editor.Session.PageCount > 0 && !editor.Session.HasPendingCut;
+        undoEdit.Enabled = ActiveSession?.CanUndo == true;
+        redoEdit.Enabled = ActiveSession?.CanRedo == true;
+        save.Enabled = ActiveSession is { PageCount: > 0, HasPendingCut: false, IsDirty: true };
+        saveAs.Enabled = ActiveSession is { PageCount: > 0, HasPendingCut: false };
     }
 
     private bool TryHandleEditKey(Keys keyData)
     {
+        if (commentEditor is not null)
+        {
+            if (commentEditor.Viewer.TryHandleCaretKey(keyData) || commentEditor.Viewer.TryHandleZoomKey(keyData)) return true;
+            Action? commentCommand = keyData switch
+            {
+                Keys.Control | Keys.Z => () => commentEditor?.Undo(),
+                Keys.Control | Keys.Y => () => commentEditor?.Redo(),
+                Keys.Control | Keys.S => () => SaveEdits(false),
+                Keys.Control | Keys.Shift | Keys.S => () => SaveEdits(true),
+                _ => null
+            };
+            if (commentCommand is null) return false;
+            BeginInvoke(() => { if (!IsDisposed) commentCommand(); }); return true;
+        }
         if (editor is null) return false;
         if (editor.Viewer.TryHandlePageMoveKey(keyData)) return true;
         if (editor.Viewer.TryHandleZoomKey(keyData)) return true;
@@ -257,23 +318,24 @@ internal sealed class PdfWindow : Form
 
     private bool SaveEdits(bool choosePath)
     {
-        if (editor is null) return false;
-        if (editor.Session.HasPendingCut)
+        var session = ActiveSession;
+        if (session is null) return false;
+        if (session.HasPendingCut)
         {
             ShowError("切り取り中のページを貼り付けるか、元に戻してから保存してください。");
             return false;
         }
-        if (editor.Session.PageCount == 0)
+        if (session.PageCount == 0)
         {
             ShowError("ページを貼り付けるかPDFをインポートしてから保存してください。"); return false;
         }
-        if (!choosePath && !editor.Session.IsDirty) return true;
+        if (!choosePath && !session.IsDirty) return true;
         string? path = document?.Path;
         if (choosePath || path is null)
         {
             using var dialog = new SaveFileDialog
             {
-                Title = "編集したPDFを保存", Filter = "PDF ファイル (*.pdf)|*.pdf", DefaultExt = "pdf",
+                Title = "変更したPDFを保存", Filter = "PDF ファイル (*.pdf)|*.pdf", DefaultExt = "pdf",
                 AddExtension = true, FileName = document?.FileName ?? "無題.pdf",
                 InitialDirectory = document is null ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : Path.GetDirectoryName(document.Path),
                 OverwritePrompt = true
@@ -286,7 +348,8 @@ internal sealed class PdfWindow : Form
 
     internal bool SaveToPath(string path)
     {
-        if (editor is null) return false;
+        var session = ActiveSession;
+        if (session is null) return false;
         try
         {
             path = Path.GetFullPath(path);
@@ -296,14 +359,14 @@ internal sealed class PdfWindow : Form
                 return false;
             }
             UseWaitCursor = true;
-            editor.Session.Save(path);
+            session.Save(path);
             document = DocumentPath.Open(path);
             if (viewer is null) { CreateViewer(document); viewer!.Visible = false; }
             editMode.Enabled = true;
             pathBox.Text = document.Path;
             Text = $"{document.FileName}（{document.Path}）";
             DocumentPathChanged?.Invoke(document);
-            editor.UpdateState();
+            editor?.UpdateState(); commentEditor?.UpdateState();
             errorPanel.Visible = false;
             return true;
         }
@@ -314,8 +377,8 @@ internal sealed class PdfWindow : Form
 
     private bool ConfirmFinishEditing()
     {
-        if (editor?.Session.IsDirty != true) return true;
-        var answer = MessageBox.Show(this, "ページの編集内容を保存しますか？\n「いいえ」を選ぶと、未保存の変更を破棄します。", "PDFの編集", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+        if (ActiveSession?.IsDirty != true) return true;
+        var answer = MessageBox.Show(this, "PDFの変更内容を保存しますか？\n「いいえ」を選ぶと、未保存の変更を破棄します。", "PDFの変更", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
         return answer == DialogResult.No || (answer == DialogResult.Yes && SaveEdits(false));
     }
 
@@ -328,15 +391,15 @@ internal sealed class PdfWindow : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        appliedPageOperationTitle = null;
+        appliedTitleMode = null;
         UpdateTitleBar();
     }
 
     private void UpdateTitleBar()
     {
-        bool enabled = editor is not null;
-        if (!IsHandleCreated || appliedPageOperationTitle == enabled) return;
-        NativeWindows.SetPageOperationTitleBar(this, enabled);
-        appliedPageOperationTitle = enabled;
+        int mode = editor is not null ? 1 : commentEditor is not null ? 2 : 0;
+        if (!IsHandleCreated || appliedTitleMode == mode) return;
+        NativeWindows.SetTitleBarColor(this, mode == 1 ? NativeWindows.PageOperationTitleColor : mode == 2 ? Color.FromArgb(0, 110, 65) : null);
+        appliedTitleMode = mode;
     }
 }

@@ -8,7 +8,7 @@ using NativePdf = Windows.Data.Pdf.PdfDocument;
 namespace SaruPdf.Views;
 
 // Own the document surface so pages and gaps can be hit-tested reliably.
-internal sealed class PdfPageCanvas : ScrollableControl
+internal class PdfPageCanvas : ScrollableControl
 {
     private readonly SortedSet<int> selected = [];
     private readonly Dictionary<int, Bitmap> images = [];
@@ -33,6 +33,9 @@ internal sealed class PdfPageCanvas : ScrollableControl
 
     internal IReadOnlyList<int> SelectedPages => selected.ToArray();
     internal int CurrentPage => order.Length == 0 ? -1 : currentPage;
+    [System.ComponentModel.DefaultValue(true)]
+    internal bool ShowPageSelection { get; set; } = true;
+    internal int PageCount => order.Length;
     internal int InsertionIndex => insertion;
     [System.ComponentModel.DefaultValue(false)]
     internal bool HasPendingCut { get; set; }
@@ -328,6 +331,13 @@ internal sealed class PdfPageCanvas : ScrollableControl
             Math.Max(0, bounds[index].Top + bounds[index].Height / 2 - ClientSize.Height / 2));
         RequestRender(); Invalidate();
     }
+    internal void CenterPointOnPage(int index, float y)
+    {
+        if (index < 0 || index >= bounds.Count) return;
+        AutoScrollPosition = new Point(Math.Max(0, -AutoScrollPosition.X),
+            Math.Max(0, (int)(bounds[index].Top + bounds[index].Height * y - ClientSize.Height / 2)));
+        RequestRender(); Invalidate();
+    }
     private void LayoutPages()
     {
         if (sizes.Count == 0 || ClientSize.Width <= 0) return;
@@ -359,9 +369,10 @@ internal sealed class PdfPageCanvas : ScrollableControl
             e.Graphics.FillRectangle(Brushes.White, rect);
             if (images.TryGetValue(order[i], out var image)) e.Graphics.DrawImage(image, rect);
             else TextRenderer.DrawText(e.Graphics, "描画中…", Font, rect, Color.Gray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            using var pen = new Pen(selected.Contains(i) ? Color.FromArgb(0, 100, 220) : Color.FromArgb(190, 194, 200), selected.Contains(i) ? 4 : 1);
+            bool isSelected = ShowPageSelection && selected.Contains(i);
+            using var pen = new Pen(isSelected ? Color.FromArgb(0, 100, 220) : Color.FromArgb(190, 194, 200), isSelected ? 4 : 1);
             e.Graphics.DrawRectangle(pen, rect);
-            if (i == currentPage && rect.Width > 24 && rect.Height > 24)
+            if (ShowPageSelection && i == currentPage && rect.Width > 24 && rect.Height > 24)
             {
                 using var currentPen = new Pen(Color.FromArgb(220, 100, 0), 3);
                 var currentRect = Rectangle.Inflate(rect, -6, -6);
@@ -374,8 +385,8 @@ internal sealed class PdfPageCanvas : ScrollableControl
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
             if (hoverGap != i)
-                TextRenderer.DrawText(e.Graphics, $"{i + 1} ページ" + (selected.Contains(i) ? "  ✓ 選択中" : ""), Font, new Rectangle(rect.Left, rect.Top - Font.Height - 4, rect.Width, Font.Height + 4),
-                    selected.Contains(i) ? Color.FromArgb(0, 80, 180) : Color.DimGray, TextFormatFlags.Left);
+                TextRenderer.DrawText(e.Graphics, $"{i + 1} ページ" + (isSelected ? "  ✓ 選択中" : ""), Font, new Rectangle(rect.Left, rect.Top - Font.Height - 4, rect.Width, Font.Height + 4),
+                    isSelected ? Color.FromArgb(0, 80, 180) : Color.DimGray, TextFormatFlags.Left);
         }
         if (bounds.Count == 0)
             TextRenderer.DrawText(e.Graphics, HasPendingCut ? "すべてのページを切り取り中です。右クリックで貼り付けてください。"

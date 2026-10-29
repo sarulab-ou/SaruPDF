@@ -190,6 +190,8 @@ internal static class Program
         await Test("arrow keys move pages and Shift extends, shrinks and reverses the selection", () => PageOperationTests.VerifyArrowSelectionAsync(root));
         await Test("page-operation mode sets and restores native title bar colors", () => PageOperationTests.VerifyTitleBarAsync(root));
         await Test("current page stays centered and has a different visual marker from selected pages", () => PageOperationTests.VerifyCurrentPageAsync(root));
+        foreach (var (name, run) in PdfCommentTests.Cases(root)) await Test(name, run);
+        await Test("comment mode caret, Enter dialog, undo, save and independent highlight rendering", () => PdfCommentTests.VerifyUiAsync(root));
         Console.WriteLine($"{passed} passed, {failed} failed. Samples: {root}");
         return failed == 0 ? 0 : 1;
     }

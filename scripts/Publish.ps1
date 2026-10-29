@@ -21,6 +21,8 @@ try {
     $licenses = Join-Path $output 'third-party-licenses'
     New-Item -ItemType Directory -Path $licenses -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/PDFsharp-LICENSE.txt') -Destination $licenses
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/PdfPig-LICENSE.txt') -Destination $licenses
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/PdfPig-NOTICES.txt') -Destination $licenses
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/Windows-SDK-LICENSE.txt') -Destination $licenses
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets/licenses/CsWinRT-LICENSE.txt') -Destination $licenses
     foreach ($package in @(

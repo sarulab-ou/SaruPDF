@@ -10,7 +10,7 @@
     <Product>SaruPDF</Product>
     <Title>SaruPDF</Title>
     <RootNamespace>SaruPdf</RootNamespace>
-    <Version>0.6.1</Version>
+    <Version>0.7.0</Version>
     <ApplicationIcon>../../assets/SaruPDF.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -21,6 +21,7 @@
     <EmbeddedResource Include="../../assets/SaruPDF.ico" LogicalName="SaruPdf.Assets.App.ico" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="[1.0.4314.35]" />
     <PackageReference Include="PDFsharp" Version="[6.2.4]" />
+    <PackageReference Include="PdfPig" Version="[0.1.16]" />
     <InternalsVisibleTo Include="sarupdf.Tests" />
   </ItemGroup>
 </Project>

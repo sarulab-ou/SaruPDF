@@ -6,7 +6,7 @@ namespace SaruPdf.Documents;
 // Stable page IDs refer to immutable original/copied PDF snapshots.
 internal sealed class PdfEditSession : IDisposable
 {
-    private sealed record State(int[] Pages, int[] Cut);
+    private sealed record State(int[] Pages, int[] Cut, PdfCommentMark[] Comments);
     private readonly byte[] original;
     private readonly List<int> pages;
     private sealed record ImportedPage(PdfPageBundle Bundle, int Page);
@@ -19,6 +19,9 @@ internal sealed class PdfEditSession : IDisposable
     private int[] savedPages;
     private byte[] savedHash;
     private int[] cut = [];
+    private readonly List<PdfCommentMark> comments = [];
+    private Guid[] savedComments = [];
+    internal IReadOnlyList<PdfCommentMark> Comments => comments.AsReadOnly();
 
     internal string SourcePath { get; private set; }
     internal int PageCount => pages.Count;
@@ -27,7 +30,7 @@ internal sealed class PdfEditSession : IDisposable
     internal int? CutPage => cut.Length == 0 ? null : cut[0];
     internal IReadOnlyList<int> CutPages => Array.AsReadOnly(cut);
     internal bool HasPendingCut => cut.Length != 0;
-    internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages);
+    internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages) || !comments.Select(c => c.Id).SequenceEqual(savedComments);
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
 
@@ -122,13 +125,27 @@ internal sealed class PdfEditSession : IDisposable
 
     internal bool Undo() => Restore(undo, redo);
     internal bool Redo() => Restore(redo, undo);
-    private State Snapshot() => new([.. pages], [.. cut]);
+    internal void AddComment(IEnumerable<PdfCommentRegion> regions, string text)
+    {
+        if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてください。");
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("コメントを入力してください。", nameof(text));
+        var selected = regions.ToArray();
+        if (selected.Length == 0 || selected.Any(region => region.Page < 0 || region.Page >= pages.Count || region.Quads.Count == 0 ||
+            region.Quads.SelectMany(q => q.Points).Any(p => !double.IsFinite(p.X) || !double.IsFinite(p.Y))))
+            throw new ArgumentException("コメントの選択範囲が正しくありません。", nameof(regions));
+        Remember();
+        foreach (var region in selected)
+            comments.Add(new PdfCommentMark(Guid.NewGuid(), pages[region.Page], text,
+                Array.AsReadOnly(region.Quads.ToArray()), DateTime.UtcNow));
+    }
+    private State Snapshot() => new([.. pages], [.. cut], [.. comments]);
     private void Remember() { undo.Push(Snapshot()); redo.Clear(); }
     private bool Restore(Stack<State> from, Stack<State> to)
     {
         if (!from.TryPop(out var state)) return false;
         to.Push(Snapshot());
         pages.Clear(); pages.AddRange(state.Pages); cut = state.Cut;
+        comments.Clear(); comments.AddRange(state.Comments);
         return true;
     }
 
@@ -203,6 +220,8 @@ internal sealed class PdfEditSession : IDisposable
                 }
                 pdf.Pages.Insert(i, source.Pages[page.Page]);
             }
+            for (int i = 0; i < pages.Count; i++)
+                foreach (var comment in comments.Where(comment => comment.PageId == pages[i])) PdfComments.Write(pdf, pdf.Pages[i], comment);
             using var output = new MemoryStream();
             pdf.Save(output, false);
             return output.ToArray();
@@ -243,6 +262,7 @@ internal sealed class PdfEditSession : IDisposable
         SourcePath = target;
         savedHash = SHA256.HashData(result);
         savedPages = [.. pages];
+        savedComments = comments.Select(comment => comment.Id).ToArray();
     }
 
     public void Dispose()

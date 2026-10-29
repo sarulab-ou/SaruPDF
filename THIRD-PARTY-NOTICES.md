@@ -11,6 +11,9 @@
 - PDFsharp **6.2.4** — MIT License。ページ順の編集・保存に使用します。
   https://www.nuget.org/packages/PDFsharp/6.2.4
   ライセンス原文はソースの `assets/licenses/PDFsharp-LICENSE.txt`、配布物の `third-party-licenses/PDFsharp-LICENSE.txt` に同梱します。
+- PdfPig **0.1.16** — Apache License 2.0（同梱コンポーネントのライセンス・著作権通知を含む）。コメントモードの文字・位置の抽出に使用します。
+  https://www.nuget.org/packages/PdfPig/0.1.16
+  公式ソースのリビジョン `a7bb35662bbbf405efddad50aedc9bcdcf515afc` のLICENSEとNOTICES.txtを、`assets/licenses/PdfPig-LICENSE.txt` / `PdfPig-NOTICES.txt`、配布物の `third-party-licenses/` に含めます。
 - Microsoft.Extensions.Logging.Abstractions **8.0.3** / Microsoft.Extensions.DependencyInjection.Abstractions **8.0.2** — MIT License。PDFsharpの依存です。配布物の `third-party-licenses/` に各パッケージのライセンスと通知を同梱します。
 - self-contained 配布には .NET / Windows Desktop Runtime が含まれます。
   配布フォルダーの `LICENSE.txt` / `THIRD-PARTY-NOTICES.txt` も参照してください。

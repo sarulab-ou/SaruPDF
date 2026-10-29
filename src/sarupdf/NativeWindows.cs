@@ -10,11 +10,14 @@ internal static class NativeWindows
     private static extern int DwmSetWindowAttribute(nint window, int attribute, ref uint value, int size);
 
     internal static void SetPageOperationTitleBar(Form form, bool enabled)
+        => SetTitleBarColor(form, enabled ? PageOperationTitleColor : null);
+
+    internal static void SetTitleBarColor(Form form, Color? color)
     {
         // Caption/text colors are supported by DWM starting with Windows 11.
         if (!form.IsHandleCreated || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
-        uint caption = enabled ? (uint)ColorTranslator.ToWin32(PageOperationTitleColor) : 0xFFFFFFFF;
-        uint text = enabled ? 0x00FFFFFF : 0xFFFFFFFF;
+        uint caption = color is { } value ? (uint)ColorTranslator.ToWin32(value) : 0xFFFFFFFF;
+        uint text = color is not null ? 0x00FFFFFF : 0xFFFFFFFF;
         _ = DwmSetWindowAttribute(form.Handle, 35, ref caption, sizeof(uint)); // DWMWA_CAPTION_COLOR
         _ = DwmSetWindowAttribute(form.Handle, 36, ref text, sizeof(uint)); // DWMWA_TEXT_COLOR
     }

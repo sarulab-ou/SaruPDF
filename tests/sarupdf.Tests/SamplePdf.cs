@@ -22,6 +22,28 @@ internal static class SamplePdf
             var stream = $"0.14 0.25 0.45 rg 48 720 499 72 re f\nBT /F1 25 Tf 1 1 1 rg 65 745 Td ({name} - page {page}) Tj ET\nBT /F1 13 Tf 0.1 0.1 0.1 rg 55 670 Td (SaruPDF acceptance test / local PDF rendering) Tj 0 -32 Td (Use the mouse wheel to scroll between pages.) Tj 0 -32 Td (Reopening this document should preserve page and zoom.) Tj ET\n";
             objects.Add($"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}endstream");
         }
+        WriteObjects(path, objects);
+    }
+
+    internal static void WriteJapanese(string path)
+    {
+        string text = Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes("日本語の本文です。コメントを追加します。"));
+        string stream = $"BT /F1 16 Tf 1 0 0 1 72 762 Tm <{text}> Tj ET\n";
+        WriteObjects(path,
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Gothic /Encoding /UniJIS-UTF16-H /DescendantFonts [5 0 R] >>",
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Gothic /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> /FontDescriptor 6 0 R >>",
+            "<< /Type /FontDescriptor /FontName /Gothic /FontBBox [-200 -200 1200 1200] /Flags 4 /ItalicAngle 0 /Ascent 1000 /Descent -200 /StemV 80 >>",
+            $"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}endstream"
+        ]);
+    }
+
+    private static void WriteObjects(string path, List<string> objects)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var output = new FileStream(path, FileMode.Create, FileAccess.Write);
         void Put(string text) => output.Write(Encoding.ASCII.GetBytes(text));
         Put("%PDF-1.4\n");
