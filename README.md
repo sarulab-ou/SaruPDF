@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.3/SaruPDF-0.7.3-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.4/SaruPDF-0.7.4-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -14,15 +14,15 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 - **PDF画面でページ操作** — ページを直接選択し、切り取り・貼り付けで並べ替えます。複数ページの選択や、別のPDFへのコピーにも対応します。
 - **本文にコメント** — 文字を選んでコメントを追加し、ハイライトと赤字で表示します。PDF標準の注釈として保存します。
 - **1文書につき1ウィンドウ** — PDFを並べて閲覧できます。同じPDFを開き直した場合は既存のウィンドウに移動します。
-- **ファイルの場所を表示** — タイトルバーにファイル名とフルパスを表示します。
+- **ファイルの場所を表示** — メニュー下のアドレスバーにフルパスを表示し、選択・コピーできます。タイトルバーにもファイル名とフルパスを表示します。
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.3 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.3/SaruPDF-0.7.3-Setup-x64.exe)**
+**[SaruPDF v0.7.4 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.4/SaruPDF-0.7.4-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.3) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.3/SaruPDF-0.7.3-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.4) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.4/SaruPDF-0.7.4-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.3** です。
+現在の公開版は **v0.7.4** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -35,6 +35,8 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 ### PDFを開く
 
 SaruPDFを起動し、**ファイル → PDF を開く**または **Ctrl+O** でPDFを選択します。複数のPDFを選択すると、文書ごとにウィンドウが開きます。Explorerの「プログラムから開く」からも利用できます。
+
+開いているPDFのフルパスはメニュー下のアドレスバーで確認・コピーできます。Alt+Dでアドレスバーに移動し、パスを全選択します。名前を付けて保存すると、新しい保存先に更新されます。
 
 起動時は **Viewモード** です。スクロールで文書を読み、数字を入力してEnterを押すと指定ページに移動します。たとえば `12` → Enter で12ページ目に移動します。入力中はBackspaceで修正、Escで取り消せます。
 
@@ -76,6 +78,7 @@ SaruPDFを起動し、**ファイル → PDF を開く**または **Ctrl+O** で
 | 操作 | キー |
 | --- | --- |
 | PDFを開く | Ctrl+O |
+| アドレスバーへ移動してパスを全選択 | Alt+D |
 | ページ番号を指定 | 数字 → Enter |
 | ページの選択・移動（ページ操作モード） | ↑ / ↓ / PgUp / PgDn / Home / End |
 | ページを範囲選択（ページ操作モード） | Shift+移動キー、Shift+クリック |
@@ -111,6 +114,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは80件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは81件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

@@ -181,6 +181,7 @@ internal static class Program
         foreach (var (name, run) in PdfEditingTests.Cases(root)) await Test(name, run);
         await Test("direct page selection and gap context menu move multiple rendered pages", () => PdfEditingTests.VerifyEditorRenderingAsync(root));
         await Test("Edit menu and Ctrl+X/V/S save the reordered PDF and return to viewing", () => PdfEditingTests.VerifyWindowCommandsAsync(root));
+        await Test("Alt+D selects the address in view, page and comment modes", () => PdfEditingTests.VerifyAddressShortcutAsync(root));
         foreach (var (name, run) in PdfCopyTests.Cases(root)) await Test(name, run);
         await Test("two PDF windows copy multiple pages, close source, paste repeatedly and save real rendering", () => PdfCopyTests.VerifyWindowsAsync(root));
         foreach (var (name, run) in PageOperationTests.Cases(root)) await Test(name, run);

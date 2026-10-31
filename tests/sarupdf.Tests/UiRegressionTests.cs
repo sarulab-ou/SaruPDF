@@ -12,8 +12,11 @@ internal static class UiRegressionTests
         yield return ("PDF title includes filename and full path without the app name", () => OnSta(() =>
         {
             using var window = new PdfWindow();
+            var address = window.Controls.Find("AddressBar", true).OfType<TextBox>().Single();
+            Check(address.ReadOnly && address.Text == "" && address.Parent?.Dock == DockStyle.Top);
             window.SetDocument(DocumentPath.Open(pdfPath));
             Check(window.Text == $"{Path.GetFileName(pdfPath)}（{pdfPath}）");
+            Check(address.Text == pdfPath);
         }));
         yield return ("embedded PDF icon contains pure red text with transparency", () =>
         {

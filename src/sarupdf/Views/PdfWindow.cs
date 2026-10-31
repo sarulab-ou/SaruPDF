@@ -7,9 +7,9 @@ internal sealed class PdfWindow : Form
     private readonly Panel content = new() { Dock = DockStyle.Fill };
     private readonly TextBox pathBox = new()
     {
-        Dock = DockStyle.Bottom, ReadOnly = true, BorderStyle = BorderStyle.None,
-        BackColor = Color.FromArgb(241, 243, 247), ForeColor = Color.FromArgb(65, 74, 90),
-        TabStop = false, AccessibleName = "表示中の PDF のパス"
+        Name = "AddressBar", Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.FixedSingle,
+        BackColor = Color.White, ForeColor = Color.FromArgb(65, 74, 90),
+        AccessibleName = "表示中の PDF のフルパス"
     };
     private readonly Panel errorPanel = new() { Dock = DockStyle.Top, Height = 108, Visible = false, Padding = new Padding(12), BackColor = Color.FromArgb(255, 241, 224) };
     private readonly TextBox errorText = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(255, 241, 224), AccessibleName = "エラー" };
@@ -76,6 +76,9 @@ internal sealed class PdfWindow : Form
         errorPanel.Controls.Add(errorText);
         errorPanel.Controls.Add(dismiss);
 
+        var addressBar = new Panel { Dock = DockStyle.Top, Height = Font.Height + 14, Padding = new Padding(8, 5, 8, 5), BackColor = Color.FromArgb(247, 248, 251) };
+        addressBar.Controls.Add(pathBox);
+
         var welcome = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(32) };
         welcome.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         welcome.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
@@ -90,7 +93,7 @@ internal sealed class PdfWindow : Form
         content.Controls.Add(welcome);
         Controls.Add(content);
         Controls.Add(errorPanel);
-        Controls.Add(pathBox);
+        Controls.Add(addressBar);
         Controls.Add(menu);
         Shown += async (_, _) => { if (viewer is not null) await viewer.LoadAsync(); };
         Deactivate += (_, _) => CancelPageInput();
@@ -178,6 +181,22 @@ internal sealed class PdfWindow : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (pathBox.Focused)
+        {
+            var modifiers = keyData & Keys.Modifiers;
+            var key = keyData & Keys.KeyCode;
+            if (modifiers == Keys.Control && key == Keys.A) { pathBox.SelectAll(); return true; }
+            if (modifiers == Keys.Control && key == Keys.C)
+            {
+                try { if (pathBox.SelectionLength > 0) pathBox.Copy(); }
+                catch (System.Runtime.InteropServices.ExternalException) { ShowError("パスをコピーできませんでした。もう一度お試しください。"); }
+                return true;
+            }
+            if (modifiers == Keys.Control && key is Keys.X or Keys.V or Keys.Z or Keys.Y) return true;
+            if (modifiers is Keys.None or Keys.Shift ||
+                (modifiers == Keys.Control && key is Keys.Left or Keys.Right or Keys.Home or Keys.End))
+                return base.ProcessCmdKey(ref msg, keyData);
+        }
         if (TryHandleEditKey(keyData)) return true;
         if (editor?.Viewer.TryHandlePageKey(keyData) == true) return true;
         if (ActiveViewer?.TryHandlePageKey(keyData) == true) return true;
@@ -277,6 +296,18 @@ internal sealed class PdfWindow : Form
 
     private bool TryHandleEditKey(Keys keyData)
     {
+        if (keyData == (Keys.Alt | Keys.D))
+        {
+            // WebView2 keyboard callbacks must return before changing focus.
+            BeginInvoke(() =>
+            {
+                if (IsDisposed) return;
+                CancelPageInput();
+                pathBox.Focus();
+                pathBox.SelectAll();
+            });
+            return true;
+        }
         if (commentEditor is not null)
         {
             if (commentEditor.Viewer.TryHandleCaretKey(keyData) || commentEditor.Viewer.TryHandleZoomKey(keyData)) return true;

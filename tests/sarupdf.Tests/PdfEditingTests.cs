@@ -261,11 +261,16 @@ internal static class PdfEditingTests
         window.Show(); editMode.PerformClick(); Check(editMode.Checked);
         var editor = (PdfEditor)typeof(PdfWindow).GetField("editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
         await ExpectCanvasColorAsync(editor.Viewer, 0, Color.Red);
+        var address = window.Controls.Find("AddressBar", true).OfType<TextBox>().Single();
+        Check(address.Text == pdf && address.ReadOnly && address.Parent!.Bottom <= editor.Top + editor.Parent!.Top);
         bool Key(Keys keys)
         {
             var method = typeof(PdfWindow).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
             object[] args = [new Message(), keys]; return (bool)method.Invoke(window, args)!;
         }
+        Check(address.Focus() && Key(Keys.Control | Keys.A) && address.SelectionLength == pdf.Length);
+        Check(!editor.Session.HasPendingCut);
+        editor.Viewer.Focus();
         Check(Key(Keys.Control | Keys.X));
         await WaitUntilAsync(() => editor.Session.HasPendingCut);
         await ExpectCanvasColorAsync(editor.Viewer, 0, Color.Lime);
@@ -275,14 +280,51 @@ internal static class PdfEditingTests
         Check(Key(Keys.Control | Keys.S));
         await WaitUntilAsync(() => !editor.Session.IsDirty);
         using (var check = PdfReader.Open(pdf, PdfDocumentOpenMode.Import)) Check(check.PageCount == 12);
+        string savedAs = Path.Combine(root, "address-save-" + Guid.NewGuid().ToString("N") + ".pdf");
+        Check(window.SaveToPath(savedAs) && address.Text == savedAs);
         window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "編集(&E)")
             .DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "ViewMode").PerformClick(); Check(!editMode.Checked);
         var viewer = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
         var readWeb = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
         await WaitUntilAsync(() => readWeb.CoreWebView2 is not null && readWeb.Source?.IsFile == true);
         await PageNavigationTests.ExpectColorAsync(readWeb, Color.Lime);
-        Check(window.Text == $"{Path.GetFileName(pdf)}（{pdf}）");
+        Check(window.Text == $"{Path.GetFileName(savedAs)}（{savedAs}）" && address.Text == savedAs);
         window.Close(); Check(window.IsDisposed);
+    });
+
+    internal static Task VerifyAddressShortcutAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string pdf = Path.Combine(root, "address-shortcut.pdf"); SamplePdf.Write(pdf, "Address shortcut");
+        using var window = new PdfWindow(Path.Combine(root, "address-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(pdf)); window.Show();
+        var address = window.Controls.Find("AddressBar", true).OfType<TextBox>().Single();
+        var viewer = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
+        await WaitUntilAsync(() => web.CoreWebView2 is not null && web.Source?.IsFile == true);
+        void ClearAddressSelection() { address.Select(0, 0); }
+        async Task Selected() => await WaitUntilAsync(() => address.Focused && address.SelectionStart == 0 && address.SelectionLength == pdf.Length);
+        void FormShortcut()
+        {
+            var method = typeof(PdfWindow).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            object[] args = [new Message(), Keys.Alt | Keys.D]; Check((bool)method.Invoke(window, args)!);
+        }
+        // The WebView2 callback is a separate path from WinForms keyboard routing.
+        ClearAddressSelection();
+        var keyEvent = new KeyEventArgs(Keys.Alt | Keys.D);
+        typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(web, [keyEvent]);
+        Check(keyEvent.Handled); await Selected();
+        ClearAddressSelection(); FormShortcut(); await Selected(); // Already focused.
+        window.ToggleEditMode();
+        var editor = (PdfEditor)typeof(PdfWindow).GetField("editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        await WaitUntilAsync(() => editor.Visible && editor.Viewer.IsPageRendered(0));
+        editor.Viewer.Focus(); ClearAddressSelection(); FormShortcut(); await Selected();
+        Check(!editor.Session.IsDirty);
+        window.ToggleEditMode(); window.ToggleCommentMode();
+        var comments = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        await WaitUntilAsync(() => comments.Visible && comments.Viewer.Selection is not null);
+        comments.Viewer.Focus(); ClearAddressSelection(); FormShortcut(); await Selected();
+        Check(!comments.Session.IsDirty);
+        window.ToggleCommentMode(); host.Controls.Remove(window);
     });
 
     internal static Task OnSurfaceAsync(Func<Form, Task> action)
