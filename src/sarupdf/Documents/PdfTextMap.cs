@@ -62,6 +62,7 @@ internal sealed class PdfTextMap
     internal List<PdfTextGlyph> Glyphs { get; } = [];
     internal List<PdfExistingComment> ExistingComments { get; } = [];
     private readonly Dictionary<int, RectangleF> paragraphBounds = [];
+    private readonly Dictionary<int, float> columnGutters = [];
 
     internal PdfCommentQuad? Paragraph(int page, int line)
     {
@@ -91,7 +92,11 @@ internal sealed class PdfTextMap
                 var blocks = DocstrumBoundingBoxes.Instance.GetBlocks(words);
                 if (page.Rotation.Value == 0) blocks = SplitMixedColumns(blocks, page.Width);
                 IEnumerable<TextBlock> ordered = UnsupervisedReadingOrderDetector.Instance.Get(blocks);
-                if (page.Rotation.Value == 0) ordered = OrderColumns(ordered.ToArray(), page.Width);
+                if (page.Rotation.Value == 0)
+                {
+                    ordered = OrderColumns(ordered.ToArray(), page.Width, out double? gutter);
+                    if (gutter is { } split) result.columnGutters[page.Number - 1] = (float)(split / page.Width);
+                }
                 foreach (var block in ordered)
                 {
                 int blockStart = result.Glyphs.Count;
@@ -208,8 +213,9 @@ internal sealed class PdfTextMap
 
     // A reading-order detector may alternate whole paragraphs between columns.
     // Only reorder when several lines on both sides share a clear vertical gutter.
-    private static IReadOnlyList<TextBlock> OrderColumns(IReadOnlyList<TextBlock> blocks, double pageWidth)
+    private static IReadOnlyList<TextBlock> OrderColumns(IReadOnlyList<TextBlock> blocks, double pageWidth, out double? detectedGutter)
     {
+        detectedGutter = null;
         if (blocks.Count < 2 || pageWidth <= 0) return blocks;
         var substantial = blocks.Where(b => b.TextLines.Count >= 2).ToArray();
         double? gutter = null, bestGap = pageWidth * .003;
@@ -229,6 +235,7 @@ internal sealed class PdfTextMap
             { bestCoverage = coverage; bestGap = gap; gutter = (right.Min(b => b.BoundingBox.Left) + left.Max(b => b.BoundingBox.Right)) / 2; }
         }
         if (gutter is not { } split) return blocks;
+        detectedGutter = split;
 
         bool Spans(TextBlock b) => b.BoundingBox.Left < split && b.BoundingBox.Right > split;
         double Middle(TextBlock b) => (b.BoundingBox.Top + b.BoundingBox.Bottom) / 2;
@@ -241,10 +248,46 @@ internal sealed class PdfTextMap
         }).OrderBy(x => x.Band).ThenBy(x => x.Side).ThenByDescending(x => x.Block.BoundingBox.Top)
           .ThenBy(x => x.Index).Select(x => x.Block).ToArray();
     }
+
+    // A stop is a representative text line in the upper or lower half of a
+    // column. Full-width headings are excluded from the column geometry.
+    internal IReadOnlyList<(int Index, int Page, int Side, float Y)> PageNavigationStops()
+    {
+        List<(int Index, int Page, int Side, float Y)> stops = [];
+        foreach (var page in Glyphs.Select((glyph, index) => (glyph, index)).Where(x => !string.IsNullOrWhiteSpace(x.glyph.Text)).GroupBy(x => x.glyph.Page))
+        {
+            var lines = page.GroupBy(x => x.glyph.Line).Select(line => new
+            {
+                Index = line.First().index,
+                Bounds = line.Select(x => x.glyph.Bounds).Aggregate(RectangleF.Union)
+            }).ToArray();
+            if (!columnGutters.TryGetValue(page.Key, out float gutter))
+            {
+                var first = lines[0]; stops.Add((first.Index, page.Key, 0, first.Bounds.Top));
+                continue;
+            }
+            foreach (int side in new[] { 0, 1 })
+            {
+                var column = lines.Where(line => side == 0 ? line.Bounds.Right <= gutter : line.Bounds.Left >= gutter).ToArray();
+                if (column.Length == 0) continue;
+                float top = column.Min(line => line.Bounds.Top), bottom = column.Max(line => line.Bounds.Bottom);
+                foreach (float fraction in new[] { .25f, .75f })
+                {
+                    float y = top + (bottom - top) * fraction;
+                    var line = column.MinBy(item => Math.Abs(item.Bounds.Top + item.Bounds.Height / 2 - y))!;
+                    if (!stops.Any(stop => stop.Index == line.Index)) stops.Add((line.Index, page.Key, side, line.Bounds.Top + line.Bounds.Height / 2));
+                }
+            }
+        }
+        return stops;
+    }
+
+    internal int NavigationSide(PdfTextGlyph glyph) => columnGutters.TryGetValue(glyph.Page, out float gutter) && glyph.Bounds.Left >= gutter ? 1 : 0;
 }
 
 internal sealed class PdfCaretSelection(PdfTextMap map)
 {
+    private IReadOnlyList<(int Index, int Page, int Side, float Y)>? pageStops;
     internal int Caret { get; private set; }
     internal int Anchor { get; private set; }
     internal int Start => Math.Min(Caret, Anchor);
@@ -274,9 +317,18 @@ internal sealed class PdfCaretSelection(PdfTextMap map)
             case Keys.End: next = control ? map.Glyphs.Count : line[^1].i; break;
             case Keys.PageUp:
             case Keys.PageDown:
-                int page = glyph.Page + (key == Keys.PageUp ? -1 : 1);
-                var first = map.Glyphs.FindIndex(g => key == Keys.PageUp ? g.Page >= page && g.Page < glyph.Page : g.Page >= page);
-                next = first >= 0 ? first : key == Keys.PageUp ? 0 : map.Glyphs.Count;
+                var stops = pageStops ??= map.PageNavigationStops();
+                var candidatesOnPage = stops.Select((stop, index) => (stop, index)).Where(item => item.stop.Page == glyph.Page).ToArray();
+                int side = map.NavigationSide(glyph);
+                var sameSide = candidatesOnPage.Where(item => item.stop.Side == side).ToArray();
+                if (sameSide.Length == 0) sameSide = candidatesOnPage;
+                if (sameSide.Length > 0)
+                {
+                    float y = glyph.Bounds.Top + glyph.Bounds.Height / 2;
+                    int current = sameSide.MinBy(item => Math.Abs(item.stop.Y - y)).index;
+                    int target = Math.Clamp(current + (key == Keys.PageUp ? -1 : 1), 0, stops.Count - 1);
+                    next = target == current ? Caret : stops[target].Index;
+                }
                 break;
             case Keys.Up:
             case Keys.Down:

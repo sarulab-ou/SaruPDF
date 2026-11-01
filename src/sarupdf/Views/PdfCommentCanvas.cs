@@ -7,6 +7,9 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
     private PdfCaretSelection? selection;
     private readonly System.Windows.Forms.Timer blink = new() { Interval = 500 };
     private readonly System.Windows.Forms.Timer dragScroll = new() { Interval = 50 };
+    private readonly System.Windows.Forms.Timer caretPulse = new() { Interval = 40 };
+    private const int CaretPulseDurationMs = 900;
+    private long caretPulseStarted;
     private bool caretVisible = true;
     private readonly Dictionary<Guid, PdfCommentLabel> labels = [];
     private readonly Dictionary<Guid, PdfCommentMark> labelVersions = [];
@@ -30,6 +33,11 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
         blink.Tick += (_, _) => { caretVisible = !caretVisible; Invalidate(); };
         blink.Start();
         dragScroll.Tick += (_, _) => { if (dragging && (lastDragPoint.Y < 12 || lastDragPoint.Y > ClientSize.Height - 12)) ContinueTextDrag(lastDragPoint); };
+        caretPulse.Tick += (_, _) =>
+        {
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(caretPulseStarted).TotalMilliseconds >= CaretPulseDurationMs) caretPulse.Stop();
+            Invalidate();
+        };
     }
     internal void SetTextMap(PdfTextMap map)
     {
@@ -74,7 +82,14 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
         if ((modifiers & (Keys.Alt | Keys.LWin | Keys.RWin)) != 0 ||
             key is not (Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown)) return false;
         if ((modifiers & Keys.Control) != 0 && key is not (Keys.Home or Keys.End)) return false;
+        int previous = selection.Caret;
+        caretPulse.Stop();
         selection.Move(key, (modifiers & Keys.Shift) != 0, (modifiers & Keys.Control) != 0);
+        if (selection.Caret != previous && key is Keys.PageUp or Keys.PageDown or Keys.Home or Keys.End)
+        {
+            caretPulseStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+            caretPulse.Start();
+        }
         FollowCaret(); return true;
     }
     private void FollowCaret()
@@ -140,6 +155,7 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
     internal void BeginTextDrag(Point point, Keys modifiers)
     {
         if (selection is null || TextAt(point) is not { } position) return;
+        caretPulse.Stop();
         dragging = true; dragMoved = false; dragOrigin = lastDragPoint = point; Capture = true; dragScroll.Start();
         pressedComment = modifiers == Keys.None ? CommentAt(point) : null;
         pressedReadOnlyComment = null;
@@ -203,13 +219,26 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
             using var pen = new Pen(Color.FromArgb(0, 110, 65), 2);
             e.Graphics.DrawLine(pen, x, rect.Top - 2, x, rect.Bottom + 2);
         }
+        if (caretPulse.Enabled && selection.Current is { } destination)
+        {
+            var rect = Screen(destination.Page, destination.Bounds);
+            float x = selection.Caret == selection.Map.Glyphs.Count ? rect.Right : rect.Left;
+            float scale = DeviceDpi / 96f;
+            float radius = 18 * scale;
+            double remaining = 1 - Math.Clamp(System.Diagnostics.Stopwatch.GetElapsedTime(caretPulseStarted).TotalMilliseconds / CaretPulseDurationMs, 0, 1);
+            using var pen = new Pen(Color.FromArgb((int)(220 * remaining), 235, 35, 35), 3 * scale);
+            var state = e.Graphics.Save();
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.DrawEllipse(pen, x - radius, rect.Top + rect.Height / 2 - radius, radius * 2, radius * 2);
+            e.Graphics.Restore(state);
+        }
         if (selection.Map.Glyphs.Count == 0)
             TextRenderer.DrawText(e.Graphics, "文字情報がないPDFです。画像だけのページではキャレット選択できません。", Font,
                 new Rectangle(12, 12, Math.Max(1, ClientSize.Width - 24), 60), Color.DarkGreen, Color.White, TextFormatFlags.WordBreak);
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { blink.Dispose(); dragScroll.Dispose(); commentMenu?.Dispose(); foreach (var label in labels.Values) label.Dispose(); labels.Clear(); labelVersions.Clear(); }
+        if (disposing) { blink.Dispose(); dragScroll.Dispose(); caretPulse.Dispose(); commentMenu?.Dispose(); foreach (var label in labels.Values) label.Dispose(); labels.Clear(); labelVersions.Clear(); }
         base.Dispose(disposing);
     }
 }

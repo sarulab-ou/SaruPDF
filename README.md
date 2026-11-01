@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.7/SaruPDF-0.7.7-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.8/SaruPDF-0.7.8-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.7 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.7/SaruPDF-0.7.7-Setup-x64.exe)**
+**[SaruPDF v0.7.8 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.8/SaruPDF-0.7.8-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.7) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.7/SaruPDF-0.7.7-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.8) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.8/SaruPDF-0.7.8-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.7** です。
+現在の公開版は **v0.7.8** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -76,6 +76,9 @@ SaruPDFを起動し、**ファイル → PDF を開く**または **Ctrl+O** で
 コメントはハイライトに少し重ねた**7 ptの赤字**で表示します。文字には細めの明朝体を使用します。各行は対応するハイライト行の先頭と高さに合わせ、検出した段落の右端に収まるよう折り返します。ハイライトの行数を超える場合は、同じ段の次の行へ続きます。段落を判定できない場合はページ幅を使います。長いコメントは表示枠内に収まる範囲を表示し、クリックすると全文を確認できます。
 
 2段組と判定できる本文では、同じ段を上から下まで選択してから次の段へ進みます。本文と選択範囲は、PDF標準のHighlight・FreeText注釈としてPDF本体に保存します。SaruPDFでは吹き出しマークを表示しないようにしていますが、他のビューアーでは表示方法が異なることがあります。既存のSaruPDFコメントの表示を新しい配置に更新するには、コメントモードで名前を付けて保存してください。
+
+コメントモードのPage Down／Page Upでは、2段組の左段の上・下、右段の上・下を順に移動し、続けて次／前のページへ移動します。Shiftを押しながら移動すると選択範囲を伸縮できます。
+Page Down／Page UpやHome／Endで移動した直後は、キャレットの位置に赤い丸が一瞬表示されます。
 
 ## ショートカット
 

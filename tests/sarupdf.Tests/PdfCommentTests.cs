@@ -79,6 +79,24 @@ internal static class PdfCommentTests
             Check(selection.Current is { } current && current.Bounds.Left < .5f && selection.SelectedText.Contains("Left01"));
             selection.SelectAll(); Check(selection.SelectedText.Contains("Left10") && selection.SelectedText.Contains("Right10"));
         });
+        yield return ("Page Down and Page Up traverse both halves of each column across pages", () =>
+        {
+            string page = Path.Combine(root, "navigation-columns-page.pdf"); SamplePdf.WriteTwoColumns(page);
+            string path = Path.Combine(root, "navigation-columns-two-pages.pdf");
+            using (var input = PdfReader.Open(page, PdfDocumentOpenMode.Import))
+            using (var output = new PdfSharp.Pdf.PdfDocument()) { output.AddPage(input.Pages[0]); output.AddPage(input.Pages[0]); output.Save(path); }
+            var map = PdfTextMap.Read(path); var stops = map.PageNavigationStops();
+            Check(stops.Count == 8);
+            Check(stops.Select(s => (s.Page, s.Side)).SequenceEqual(new[] { (0, 0), (0, 0), (0, 1), (0, 1), (1, 0), (1, 0), (1, 1), (1, 1) }));
+            var caret = new PdfCaretSelection(map); caret.Set(stops[0].Index, false);
+            foreach (var stop in stops.Skip(1)) { caret.Move(Keys.PageDown, false); Check(caret.Caret == stop.Index && !caret.HasSelection); }
+            caret.Move(Keys.PageDown, false); Check(caret.Caret == stops[^1].Index);
+            foreach (var stop in stops.Reverse().Skip(1)) { caret.Move(Keys.PageUp, false); Check(caret.Caret == stop.Index); }
+            caret.Move(Keys.PageUp, false); Check(caret.Caret == stops[0].Index);
+            caret.Move(Keys.PageDown, true); caret.Move(Keys.PageDown, true);
+            Check(caret.Anchor == stops[0].Index && caret.Caret == stops[2].Index && caret.HasSelection);
+            caret.Move(Keys.PageUp, true); Check(caret.Anchor == stops[0].Index && caret.Caret == stops[1].Index);
+        });
         yield return ("Japanese CJK text supports glyph selection and Unicode PDF comments", () =>
         {
             string path = Path.Combine(root, "japanese-caret.pdf"); SamplePdf.WriteJapanese(path);
@@ -453,6 +471,27 @@ internal static class PdfCommentTests
         var canvas = editor.Viewer;
         await WaitUntilAsync(() => canvas.Visible && canvas.Selection is not null && canvas.IsPageRendered(0));
         var selection = canvas.Selection!;
+        var stops = selection.Map.PageNavigationStops();
+        Check(stops.Count == 4);
+        selection.Set(stops[0].Index, false);
+        Check(canvas.TryHandleCaretKey(Keys.PageDown) && selection.Caret == stops[1].Index);
+        var pulse = (System.Windows.Forms.Timer)typeof(PdfCommentCanvas).GetField("caretPulse", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(canvas)!;
+        Check(pulse.Enabled);
+        var destination = selection.Current!; var destinationPage = canvas.PageBounds(destination.Page);
+        int cx = (int)(destinationPage.Left + destinationPage.Width * destination.Bounds.Left);
+        int cy = (int)(destinationPage.Top + destinationPage.Height * (destination.Bounds.Top + destination.Bounds.Height / 2));
+        int RingPixels()
+        {
+            using var image = new Bitmap(canvas.Width, canvas.Height); canvas.DrawToBitmap(image, canvas.ClientRectangle);
+            int count = 0; var area = Rectangle.Intersect(canvas.ClientRectangle, new Rectangle(cx - 30, cy - 30, 60, 60));
+            for (int y = area.Top; y < area.Bottom; y++) for (int x = area.Left; x < area.Right; x++)
+            { var c = image.GetPixel(x, y); if (c.R > 180 && c.G < 140 && c.B < 140) count++; }
+            return count;
+        }
+        Check(RingPixels() > 10);
+        await WaitUntilAsync(() => !pulse.Enabled); Check(RingPixels() == 0);
+        Check(canvas.TryHandleCaretKey(Keys.Shift | Keys.PageDown) && selection.Caret == stops[2].Index && selection.Anchor == stops[1].Index);
+        Check(canvas.TryHandleCaretKey(Keys.Shift | Keys.PageUp) && selection.Caret == stops[1].Index && !selection.HasSelection);
         var leftLines = selection.Map.Glyphs.Select((g, i) => (g, i)).Where(x => x.g.Text == "L" && x.g.Bounds.Left < .5f).ToArray();
         Check(leftLines.Length == 8);
         canvas.CenterPointOnPage(0, leftLines[3].g.Bounds.Top);
