@@ -12,8 +12,8 @@ internal sealed record PdfCommentQuad(PdfPointValue BottomLeft, PdfPointValue Bo
 {
     internal IEnumerable<PdfPointValue> Points => [BottomLeft, BottomRight, TopRight, TopLeft];
 }
-internal sealed record PdfCommentRegion(int Page, IReadOnlyList<PdfCommentQuad> Quads);
-internal sealed record PdfCommentMark(Guid Id, int PageId, string Text, IReadOnlyList<PdfCommentQuad> Quads, DateTime Created, DateTime? Modified = null);
+internal sealed record PdfCommentRegion(int Page, IReadOnlyList<PdfCommentQuad> Quads, PdfCommentQuad? Layout = null);
+internal sealed record PdfCommentMark(Guid Id, int PageId, string Text, IReadOnlyList<PdfCommentQuad> Quads, DateTime Created, DateTime? Modified = null, PdfCommentQuad? Layout = null);
 
 internal static class PdfComments
 {
@@ -47,7 +47,14 @@ internal static class PdfComments
             catch (FormatException) { created = DateTime.UtcNow; }
             string text = annotation.Elements.GetString("/Contents");
             if (text.Length == 0 && labels.TryGetValue(id.ToString("D") + "-label", out var labelText)) text = labelText;
-            comments.Add(new(id, p, text, quads.AsReadOnly(), created));
+            PdfCommentQuad? layout = null;
+            if (annotation.Elements.GetArray("/SaruPDFLayout") is { } layoutValues && layoutValues.Elements.Count == 8)
+            {
+                PdfPointValue Point(int index) => new(Number(layoutValues.Elements[index * 2]), Number(layoutValues.Elements[index * 2 + 1]));
+                var value = new PdfCommentQuad(Point(0), Point(1), Point(2), Point(3));
+                if (value.Points.All(point => double.IsFinite(point.X) && double.IsFinite(point.Y))) layout = value;
+            }
+            comments.Add(new(id, p, text, quads.AsReadOnly(), created, Layout: layout));
         }
         }
         return comments;
@@ -81,6 +88,7 @@ internal static class PdfComments
         annotation.Elements.SetReal("/CA", .35);
         annotation.Elements["/C"] = Numbers(document, [1, .85, 0]);
         annotation.Elements["/QuadPoints"] = Numbers(document, points.SelectMany(p => new[] { p.X, p.Y }));
+        if (mark.Layout is { } layout) annotation.Elements["/SaruPDFLayout"] = Numbers(document, layout.Points.SelectMany(p => new[] { p.X, p.Y }));
         page.Annotations.Add(annotation);
         annotation.Elements["/P"] = page.Reference!;
 
@@ -115,14 +123,14 @@ internal static class PdfComments
     private static void WriteLabel(SharpDocument document, PdfPage page, PdfAnnotation parent, PdfCommentMark mark)
     {
         var geometry = PdfTextPage.FromPdfPage(page);
-        using var label = new PdfCommentLabel(geometry, mark.Quads, mark.Text);
+        using var label = new PdfCommentLabel(geometry, mark.Quads, mark.Text, mark.Layout);
         var points = label.PdfBounds().Points.ToArray();
         double left = points.Min(p => p.X), bottom = points.Min(p => p.Y), right = points.Max(p => p.X), top = points.Max(p => p.Y);
         var annotation = new StoredAnnotation(document);
         annotation.Elements.SetName("/Subtype", "/FreeText");
         annotation.Elements.SetRectangle("/Rect", new PdfRectangle(new PdfSharp.Drawing.XPoint(left, bottom), new PdfSharp.Drawing.XPoint(right, top)));
         annotation.Elements["/Contents"] = new PdfString(mark.Text.ReplaceLineEndings("\r"), PdfStringEncoding.Unicode);
-        annotation.Elements.SetString("/DA", "1 0 0 rg /Helv 10 Tf");
+        annotation.Elements.SetString("/DA", "1 0 0 rg /Helv 7 Tf");
         annotation.Elements.SetString("/T", "SaruPDF");
         annotation.Elements.SetString("/NM", mark.Id.ToString("D") + "-label");
         annotation.Elements.SetDateTime("/M", mark.Modified ?? mark.Created); annotation.Elements.SetDateTime("/CreationDate", mark.Created);

@@ -49,7 +49,7 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
         if (selection is not null)
             foreach (var comment in comments.Where(c => !labels.ContainsKey(c.Id)))
             {
-                labels.Add(comment.Id, new PdfCommentLabel(selection.Map.Pages[comment.PageId], comment.Quads, comment.Text));
+                labels.Add(comment.Id, new PdfCommentLabel(selection.Map.Pages[comment.PageId], comment.Quads, comment.Text, comment.Layout));
                 labelVersions[comment.Id] = comment;
             }
         Invalidate();

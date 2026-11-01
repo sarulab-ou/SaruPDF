@@ -159,7 +159,18 @@ internal sealed class PdfEditSession : IDisposable
         Remember();
         foreach (var region in selected)
             comments.Add(new PdfCommentMark(Guid.NewGuid(), pages[region.Page], text,
-                Array.AsReadOnly(region.Quads.ToArray()), DateTime.UtcNow));
+                Array.AsReadOnly(region.Quads.ToArray()), DateTime.UtcNow, Layout: region.Layout));
+    }
+    internal void ResolveCommentLayouts(PdfTextMap map)
+    {
+        for (int i = 0; i < comments.Count; i++)
+        {
+            var mark = comments[i];
+            if (mark.Layout is null && map.FindParagraph(mark.PageId, mark.Quads[0]) is { } layout)
+                comments[i] = mark with { Layout = layout };
+        }
+        // Resolving layout for an opened document changes no comment content.
+        savedComments = [.. comments];
     }
     internal void UpdateComment(Guid id, string text)
     {

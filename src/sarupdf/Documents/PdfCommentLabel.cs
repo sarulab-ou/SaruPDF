@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Globalization;
 
 namespace SaruPdf.Documents;
 
@@ -6,7 +7,7 @@ namespace SaruPdf.Documents;
 // Coordinates and vector glyph outlines are in displayed page units, top down.
 internal sealed class PdfCommentLabel : IDisposable
 {
-    internal const float FontSize = 10;
+    internal const float FontSize = 7;
     private static readonly Lazy<string> fontFamilyName = new(FindFontFamily);
     internal static string FontFamilyName => fontFamilyName.Value;
     internal RectangleF Bounds { get; }
@@ -15,51 +16,91 @@ internal sealed class PdfCommentLabel : IDisposable
     internal RectangleF NormalizedBounds => new(Bounds.X / (float)Page.Width, Bounds.Y / (float)Page.Height,
         Bounds.Width / (float)Page.Width, Bounds.Height / (float)Page.Height);
 
-    internal PdfCommentLabel(PdfTextPage page, IReadOnlyList<PdfCommentQuad> quads, string text)
+    internal PdfCommentLabel(PdfTextPage page, IReadOnlyList<PdfCommentQuad> quads, string text, PdfCommentQuad? paragraph = null)
     {
         Page = page;
-        var target = page.Rectangle(quads[0]);
+        var targets = quads.Select(page.Rectangle).OrderBy(rect => rect.Top).ThenBy(rect => rect.Left).ToArray();
+        var target = targets[0];
         float margin = Math.Min(6, (float)Math.Min(page.Width, page.Height) / 20);
-        // Keep the first glyph at the start of the highlight and wrap into the
-        // remaining page width. At the extreme edge reserve room for one glyph.
-        float left = Math.Clamp(target.Left * (float)page.Width, 0, Math.Max(0, (float)page.Width - FontSize * 1.5f));
-        float maxWidth = Math.Max(1, (float)page.Width - left);
+        var column = paragraph is null ? RectangleF.Empty : page.Rectangle(paragraph);
+        float first = Math.Clamp(target.Left * (float)page.Width, 0, Math.Max(0, (float)page.Width - FontSize * 1.5f));
+        float left = paragraph is null ? first : Math.Clamp(column.Left * (float)page.Width, 0, first);
+        float right = paragraph is null ? (float)page.Width : Math.Clamp(Math.Max(column.Right, targets.Max(rect => rect.Right)) * (float)page.Width, first, (float)page.Width);
+        if (right - left < FontSize * 1.5f) { left = first; right = (float)page.Width; }
+        first = Math.Min(first, Math.Max(left, right - FontSize * 1.5f));
         float maxHeight = Math.Max(1, Math.Min(200, (float)page.Height - margin * 2));
         using var family = new FontFamily(FontFamilyName);
         using var font = new Font(family, FontSize, FontStyle.Regular, GraphicsUnit.Pixel);
         using var bitmap = new Bitmap(1, 1);
         using var graphics = Graphics.FromImage(bitmap);
         using var format = (StringFormat)StringFormat.GenericTypographic.Clone();
-        format.FormatFlags |= StringFormatFlags.LineLimit;
-        format.Trimming = StringTrimming.EllipsisCharacter;
+        format.FormatFlags |= StringFormatFlags.LineLimit | StringFormatFlags.MeasureTrailingSpaces;
+        format.Trimming = StringTrimming.None;
         text = text.ReplaceLineEndings("\n");
-        var measured = graphics.MeasureString(text, font, new SizeF(Math.Max(1, maxWidth - 2), 100000), format);
-        float width = Math.Min(maxWidth, Math.Max(FontSize, (float)Math.Ceiling(measured.Width) + 2));
         float lineHeight = font.GetHeight(graphics);
-        // MeasureString may report only the Latin glyph ink height. AddString's
-        // LineLimit needs complete font lines, otherwise English can draw nothing.
-        float height = Math.Min(maxHeight, Math.Max(lineHeight + 2,
-            (float)Math.Ceiling(measured.Height / lineHeight) * lineHeight + 2));
-        float overlap = Math.Min(6, target.Height * (float)page.Height * .5f);
-        float top = Math.Clamp(target.Top * (float)page.Height - height + overlap, margin,
-            Math.Max(margin, (float)page.Height - height - margin));
-        Bounds = new(left, top, width, height);
+        var elements = new List<string>();
+        var enumerator = StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext()) elements.Add(enumerator.GetTextElement());
+        var lines = new List<(string Text, float X, float Anchor, float Overlap)>();
+        var differences = targets.Zip(targets.Skip(1), (a, b) => (b.Top - a.Top) * (float)page.Height).Where(d => d > lineHeight * .5f).Order().ToArray();
+        float advance = differences.Length > 0 ? differences[differences.Length / 2] : Math.Max(lineHeight, target.Height * (float)page.Height * 1.2f);
+        int position = 0, limit = Math.Max(1, (int)((maxHeight - 2) / lineHeight));
+        while (position < elements.Count && lines.Count < limit)
+        {
+            int index = lines.Count;
+            var row = targets[Math.Min(index, targets.Length - 1)];
+            float x = index < targets.Length ? Math.Clamp(row.Left * (float)page.Width, left, Math.Max(left, right - FontSize * 1.5f)) : left;
+            if (index == 0) x = first;
+            float anchor = row.Top * (float)page.Height + Math.Max(0, index - targets.Length + 1) * advance;
+            if (anchor > (float)page.Height - 1 || anchor - target.Top * (float)page.Height > maxHeight) break;
+            float available = Math.Max(1, right - x - 2);
+            int start = position, lastSpace = -1;
+            string current = "";
+            while (position < elements.Count && elements[position] != "\n")
+            {
+                string candidate = current + elements[position];
+                float measured = graphics.MeasureString(candidate, font, PointF.Empty, format).Width;
+                if (current.Length > 0 && measured > available) break;
+                current = candidate;
+                if (string.IsNullOrWhiteSpace(elements[position])) lastSpace = position;
+                position++;
+            }
+            if (position < elements.Count && elements[position] != "\n" && lastSpace >= start && lastSpace < position - 1)
+            {
+                position = lastSpace + 1;
+                current = string.Concat(elements.Skip(start).Take(lastSpace - start));
+            }
+            lines.Add((current, x, anchor, Math.Min(3, row.Height * (float)page.Height * .25f)));
+            if (position < elements.Count && elements[position] == "\n") position++;
+            else while (position < elements.Count && elements[position] != "\n" && string.IsNullOrWhiteSpace(elements[position])) position++;
+        }
         Outline = new GraphicsPath();
-        try { Outline.AddString(text, family, (int)FontStyle.Regular, FontSize, new RectangleF(0, 0, Math.Max(1, width - 2), height), format); }
+        try
+        {
+            for (int i = 0; i < lines.Count; i++)
+            {
+                using var line = new GraphicsPath();
+                line.AddString(lines[i].Text, family, (int)FontStyle.Regular, FontSize,
+                    new RectangleF(0, 0, Math.Max(1, right - lines[i].X - 2), lineHeight + 2), format);
+                if (line.PointCount == 0) continue;
+                using var align = new Matrix();
+                var ink = line.GetBounds();
+                float top = Math.Max(0, Math.Min((float)page.Height - 1, lines[i].Anchor + lines[i].Overlap) - ink.Bottom);
+                align.Translate(lines[i].X - ink.Left, top);
+                line.Transform(align); Outline.AddPath(line, false);
+            }
+        }
         catch { Outline.Dispose(); throw; }
         if (Outline.PointCount > 0)
         {
-            // Glyph side bearings vary by font; align the visible ink itself.
-            using var align = new Matrix();
-            align.Translate(-Outline.GetBounds().Left, 0);
-            Outline.Transform(align);
-            // Align the actual glyph ink, rather than the font's descent space,
-            // so the red letters themselves overlap the highlight slightly.
-            float inkBottom = Outline.GetBounds().Bottom;
-            top = Math.Clamp(target.Top * (float)page.Height - inkBottom + Math.Min(3, target.Height * (float)page.Height * .25f),
-                margin, Math.Max(margin, (float)page.Height - height - margin));
-            Bounds = new(left, top, width, height);
+            var ink = Outline.GetBounds();
+            float boundsLeft = Math.Clamp(ink.Left, 0, (float)page.Width - 1);
+            float boundsTop = Math.Clamp(ink.Top, 0, (float)page.Height - 1);
+            Bounds = RectangleF.FromLTRB(boundsLeft, boundsTop, Math.Min((float)page.Width, Math.Max(boundsLeft + 1, ink.Right + 1)),
+                Math.Min((float)page.Height, Math.Max(boundsTop + 1, ink.Bottom + 1)));
+            using var local = new Matrix(); local.Translate(-boundsLeft, -boundsTop); Outline.Transform(local);
         }
+        else Bounds = new RectangleF(first, Math.Clamp(target.Top * (float)page.Height, 0, (float)page.Height - 1), 1, 1);
     }
 
     internal PdfCommentQuad PdfBounds() => Page.Quad(NormalizedBounds);

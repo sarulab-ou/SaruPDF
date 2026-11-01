@@ -188,6 +188,65 @@ internal static class PdfCommentTests
                 Check(longLabel.NormalizedBounds.Left >= 0 && longLabel.NormalizedBounds.Top >= 0 && longLabel.NormalizedBounds.Right <= 1 && longLabel.NormalizedBounds.Bottom <= 1);
             }
         });
+        yield return ("Japanese comments use 7 pt and wrap within the selected paragraph", () =>
+        {
+            var page = new PdfTextPage(612, 792, 0, 0, 612, 792, 0);
+            var paragraph = new RectangleF(.08f, .25f, .4f, .3f);
+            var highlight = new RectangleF(.40f, .50f, .07f, .02f);
+            using var label = new PdfCommentLabel(page, [page.Quad(highlight)],
+                "ここがよくわからないポイント。日本語とEnglishを段落に沿って折り返してください。", page.Quad(paragraph));
+            Check(PdfCommentLabel.FontSize == 7 && label.Outline.PointCount > 20);
+            var ink = label.Outline.GetBounds();
+            Check(label.Bounds.Left + ink.Left >= paragraph.Left * page.Width - .01 &&
+                  label.Bounds.Left + ink.Right <= paragraph.Right * page.Width + .01);
+            Check(ink.Height > PdfCommentLabel.FontSize * 2);
+            var firstLine = label.Outline.PathPoints.Where(point => point.Y < 9).ToArray();
+            Check(firstLine.Length > 0 && Math.Abs(label.Bounds.Left + firstLine.Min(point => point.X) - highlight.Left * page.Width) < .1);
+            var later = label.Outline.PathPoints.Where(point => point.Y > 12).ToArray();
+            Check(later.Length > 0 && Math.Abs(label.Bounds.Left + later.Min(point => point.X) - paragraph.Left * page.Width) < .1);
+        });
+        yield return ("comment rows align individually with multiline highlights", () =>
+        {
+            var page = new PdfTextPage(612, 792, 0, 0, 612, 792, 0);
+            var paragraph = new RectangleF(.08f, .25f, .4f, .3f);
+            var highlights = new[] { new RectangleF(.30f, .40f, .18f, .015f), new RectangleF(.08f, .43f, .40f, .015f), new RectangleF(.08f, .46f, .16f, .015f) };
+            using var label = new PdfCommentLabel(page, highlights.Select(page.Quad).ToArray(), "第一行\nSecond line\n最後の行", page.Quad(paragraph));
+            var points = label.Outline.PathPoints.Select(point => new PointF(point.X + label.Bounds.Left, point.Y + label.Bounds.Top)).ToArray();
+            foreach (var rect in highlights)
+            {
+                float top = rect.Top * (float)page.Height;
+                var row = points.Where(point => point.Y >= top - 9 && point.Y <= top + 3).ToArray();
+                Check(row.Length > 0 && Math.Abs(row.Min(point => point.X) - rect.Left * page.Width) < .1);
+                Check(row.Max(point => point.Y) >= top && row.Max(point => point.Y) <= top + 3);
+            }
+        });
+        yield return ("paragraph bounds survive comment save, reopen and legacy layout resolution", () =>
+        {
+            string path = Path.Combine(root, "paragraph-source-" + Guid.NewGuid().ToString("N") + ".pdf");
+            string saved = Path.Combine(root, "paragraph-saved-" + Guid.NewGuid().ToString("N") + ".pdf");
+            SamplePdf.WriteTwoColumns(path); var map = PdfTextMap.Read(path);
+            var line = map.Glyphs.Select((glyph, index) => (glyph, index)).Where(x => x.glyph.Page == 0).GroupBy(x => x.glyph.Line)
+                .First(g => string.Concat(g.Select(x => x.glyph.Text)).StartsWith("Left paragraph line 1"));
+            int start = line.First().index + 20; var selected = new PdfCaretSelection(map); selected.Set(start, false); selected.Set(start + 8, true);
+            var region = selected.Regions().Single(); Check(region.Layout is not null);
+            Check(map.Pages[0].Rectangle(region.Layout!).Right < .5);
+            using (var session = new PdfEditSession(path))
+            {
+                session.AddComment([region], "ここがよくわからないポイントを段落の幅で折り返します。"); session.Save(saved);
+            }
+            using (var savedPdf = PdfReader.Open(saved, PdfDocumentOpenMode.Import))
+            {
+                var restored = PdfComments.ReadManaged(savedPdf).Single(); Check(restored.Layout is not null);
+                var label = savedPdf.Pages[0].Annotations.Cast<PdfSharp.Pdf.Annotations.PdfAnnotation>()
+                    .Single(item => item.Elements.GetName("/Subtype") == "/FreeText");
+                Check(label.Elements.GetRectangle("/Rect").X2 < map.Pages[0].Width * .5);
+            }
+            using var reopened = new PdfEditSession(saved); Check(reopened.Comments.Single().Layout is not null && !reopened.IsDirty);
+            string legacy = Path.Combine(root, "legacy-layout-" + Guid.NewGuid().ToString("N") + ".pdf");
+            using (var old = new PdfEditSession(path)) { old.AddComment([new PdfCommentRegion(region.Page, region.Quads)], "Older comment"); old.Save(legacy); }
+            using var previous = new PdfEditSession(legacy); Check(previous.Comments.Single().Layout is null);
+            previous.ResolveCommentLayouts(PdfTextMap.Read(legacy)); Check(previous.Comments.Single().Layout is not null && !previous.IsDirty);
+        });
         yield return ("inline comment appearances preserve the original page boxes and body text", () =>
         {
             string source = Fixture("Preserve page"), saved = Path.Combine(root, "red-comment-preserved.pdf");
@@ -312,7 +371,7 @@ internal static class PdfCommentTests
             if (type == "/FreeText")
             {
                 labels++;
-                Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetString("/DA") == "1 0 0 rg /Helv 10 Tf");
+                Check(annotation.Elements.GetString("/Contents").Length > 0 && annotation.Elements.GetString("/DA") == "1 0 0 rg /Helv 7 Tf");
                 Check(annotation.Elements.GetName("/RT") == "/Group" && annotation.Elements.GetReference("/IRT") is not null);
                 Check(annotation.Elements.GetDictionary("/AP")?.Elements.GetDictionary("/N")?.Stream is not null);
                 continue;

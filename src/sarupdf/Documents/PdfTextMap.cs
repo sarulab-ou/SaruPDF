@@ -61,6 +61,21 @@ internal sealed class PdfTextMap
     internal List<PdfTextPage> Pages { get; } = [];
     internal List<PdfTextGlyph> Glyphs { get; } = [];
     internal List<PdfExistingComment> ExistingComments { get; } = [];
+    private readonly Dictionary<int, RectangleF> paragraphBounds = [];
+
+    internal PdfCommentQuad? Paragraph(int page, int line)
+    {
+        if (page < 0 || page >= Pages.Count || !paragraphBounds.TryGetValue(line, out var rect) || rect.Width <= 0 || rect.Height <= 0) return null;
+        return Pages[page].Quad(rect);
+    }
+    internal PdfCommentQuad? FindParagraph(int page, PdfCommentQuad quad)
+    {
+        if (page < 0 || page >= Pages.Count) return null;
+        var target = Pages[page].Rectangle(quad);
+        var glyph = Glyphs.Where(g => g.Page == page && !string.IsNullOrWhiteSpace(g.Text) && g.Bounds.IntersectsWith(target))
+            .OrderBy(g => Math.Abs(g.Bounds.Top - target.Top)).FirstOrDefault();
+        return glyph is null ? null : Paragraph(page, glyph.Line);
+    }
 
     internal static PdfTextMap Read(string path)
     {
@@ -78,6 +93,8 @@ internal sealed class PdfTextMap
                 IEnumerable<TextBlock> ordered = UnsupervisedReadingOrderDetector.Instance.Get(blocks);
                 if (page.Rotation.Value == 0) ordered = OrderColumns(ordered.ToArray(), page.Width);
                 foreach (var block in ordered)
+                {
+                int blockStart = result.Glyphs.Count;
                 foreach (var line in block.TextLines)
                 {
                     UglyToad.PdfPig.Content.Letter? previous = null;
@@ -111,6 +128,13 @@ internal sealed class PdfTextMap
                     if (result.Glyphs.LastOrDefault() is { } last && last.Line == lineId)
                         result.Glyphs.Add(new("\n", page.Number - 1, lineId, new RectangleF(last.Bounds.Right, last.Bounds.Top, .001f, last.Bounds.Height)));
                     lineId++;
+                }
+                var blockGlyphs = result.Glyphs.Skip(blockStart).Where(g => !string.IsNullOrWhiteSpace(g.Text)).ToArray();
+                if (blockGlyphs.Length > 0)
+                {
+                    var bounds = blockGlyphs.Select(g => g.Bounds).Aggregate(RectangleF.Union);
+                    foreach (int id in blockGlyphs.Select(g => g.Line).Distinct()) result.paragraphBounds[id] = bounds;
+                }
                 }
             }
         }
@@ -265,5 +289,6 @@ internal sealed class PdfCaretSelection(PdfTextMap map)
     }
     internal IReadOnlyList<PdfCommentRegion> Regions() => Selected.Where(g => !string.IsNullOrWhiteSpace(g.Text)).GroupBy(g => g.Page)
         .Select(page => new PdfCommentRegion(page.Key, page.GroupBy(g => g.Line)
-            .Select(line => map.Pages[page.Key].Quad(line.Select(g => g.Bounds).Aggregate(RectangleF.Union))).ToArray())).ToArray();
+            .Select(line => map.Pages[page.Key].Quad(line.Select(g => g.Bounds).Aggregate(RectangleF.Union))).ToArray(),
+            map.Paragraph(page.Key, page.First().Line))).ToArray();
 }

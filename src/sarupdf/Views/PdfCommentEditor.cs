@@ -40,6 +40,7 @@ internal sealed class PdfCommentEditor : UserControl
             string snapshot = Session.WriteCommentPreview();
             var map = await Task.Run(() => PdfTextMap.Read(snapshot));
             if (IsDisposed) return;
+            Session.ResolveCommentLayouts(map);
             Viewer.InheritView(state);
             await Viewer.LoadAsync(snapshot);
             if (IsDisposed) return;
