@@ -13,6 +13,7 @@ internal class PdfPageCanvas : ScrollableControl
     private readonly SortedSet<int> selected = [];
     private readonly Dictionary<int, Bitmap> images = [];
     private readonly Dictionary<int, int> rotations = [];
+    private PdfSearchMatch? searchMatch;
     private readonly PageNumberInput pageInput = new();
     private readonly List<Rectangle> bounds = [];
     private NativePdf? pdf;
@@ -350,6 +351,16 @@ internal class PdfPageCanvas : ScrollableControl
             Math.Max(0, (int)(bounds[index].Top + bounds[index].Height * y - ClientSize.Height / 2)));
         RequestRender(); Invalidate();
     }
+    internal void ShowSearchMatch(PdfSearchMatch? match)
+    {
+        searchMatch = match;
+        if (match is { Bounds.Count: > 0 } && match.Page >= 0 && match.Page < bounds.Count)
+        {
+            var area = match.Bounds.Aggregate(RectangleF.Union);
+            CenterPointOnPage(match.Page, area.Top + area.Height / 2);
+        }
+        Invalidate();
+    }
     private void LayoutPages()
     {
         if (sizes.Count == 0 || ClientSize.Width <= 0) return;
@@ -386,6 +397,13 @@ internal class PdfPageCanvas : ScrollableControl
             e.Graphics.FillRectangle(Brushes.White, rect);
             if (images.TryGetValue(order[i], out var image)) e.Graphics.DrawImage(image, rect);
             else TextRenderer.DrawText(e.Graphics, "描画中…", Font, rect, Color.Gray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            if (searchMatch is { } match && match.Page == i)
+            {
+                using var highlight = new SolidBrush(Color.FromArgb(115, 190, 150, 255));
+                foreach (var area in match.Bounds)
+                    e.Graphics.FillRectangle(highlight, rect.Left + rect.Width * area.Left, rect.Top + rect.Height * area.Top,
+                        rect.Width * area.Width, rect.Height * area.Height);
+            }
             bool isSelected = ShowPageSelection && selected.Contains(i);
             using var pen = new Pen(isSelected ? Color.FromArgb(0, 100, 220) : Color.FromArgb(190, 194, 200), isSelected ? 4 : 1);
             e.Graphics.DrawRectangle(pen, rect);

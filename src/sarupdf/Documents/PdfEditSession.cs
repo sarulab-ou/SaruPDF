@@ -38,6 +38,7 @@ internal sealed class PdfEditSession : IDisposable
         rotations.Count != savedRotations.Count || rotations.Any(pair => !savedRotations.TryGetValue(pair.Key, out int value) || value != pair.Value);
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
+    internal int Revision { get; private set; }
 
     internal PdfEditSession(string path)
     {
@@ -182,10 +183,11 @@ internal sealed class PdfEditSession : IDisposable
         Remember(); comments[index] = comments[index] with { Text = text, Modified = DateTime.UtcNow };
     }
     private State Snapshot() => new([.. pages], [.. cut], [.. comments], new(rotations));
-    private void Remember() { undo.Push(Snapshot()); redo.Clear(); }
+    private void Remember() { undo.Push(Snapshot()); redo.Clear(); Revision++; }
     private bool Restore(Stack<State> from, Stack<State> to)
     {
         if (!from.TryPop(out var state)) return false;
+        Revision++;
         to.Push(Snapshot());
         pages.Clear(); pages.AddRange(state.Pages); cut = state.Cut;
         comments.Clear(); comments.AddRange(state.Comments);

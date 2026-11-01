@@ -24,11 +24,13 @@ internal sealed class PdfView : UserControl
     };
     private bool started;
     private bool ready;
+    private string? findTerm;
     public event Action<string>? OpenRequested;
     public event Action? OpenDialogRequested;
     public event Action? CloseRequested;
     public event Func<Keys, bool>? CommandKeyRequested;
     public event Action<int>? PageJumpRequested;
+    internal event Action<int, int>? FindStatusChanged;
 
     public PdfView(PdfDocument document, string? userDataFolder = null)
     {
@@ -80,6 +82,12 @@ internal sealed class PdfView : UserControl
                 else ShowFailure($"PDF を表示できませんでした（{e.WebErrorStatus}）。\nファイルが破損していないか、アクセス可能か確認してください。", false);
             };
             core.ProcessFailed += (_, e) => ShowFailure($"PDF Viewer が停止しました（{e.ProcessFailedKind}）。\nこのウィンドウを閉じて、PDF を開き直してください。", false);
+            try
+            {
+                core.Find.MatchCountChanged += (_, _) => ReportFindStatus();
+                core.Find.ActiveMatchIndexChanged += (_, _) => ReportFindStatus();
+            }
+            catch (Exception ex) when (ex is InvalidCastException or NotImplementedException or COMException) { }
             web.KeyDown += (_, e) =>
             {
                 if (CommandKeyRequested?.Invoke(e.KeyData) == true)
@@ -165,6 +173,36 @@ internal sealed class PdfView : UserControl
         pageHint.Visible = false;
     }
 
+    private void ReportFindStatus()
+    {
+        if (web.CoreWebView2 is { } core && findTerm is not null)
+            FindStatusChanged?.Invoke(core.Find.ActiveMatchIndex, core.Find.MatchCount);
+    }
+    internal async Task<bool> FindAsync(string term, bool previous)
+    {
+        if (!ready || web.CoreWebView2 is not { } core) return false;
+        if (findTerm != term)
+        {
+            core.Find.Stop();
+            var options = core.Environment.CreateFindOptions();
+            options.FindTerm = term; options.ShouldHighlightAllMatches = true; options.SuppressDefaultFindDialog = true;
+            findTerm = term;
+            try { await core.Find.StartAsync(options); }
+            catch { findTerm = null; throw; }
+            if (previous && !IsDisposed) core.Find.FindPrevious();
+        }
+        else if (previous) core.Find.FindPrevious();
+        else core.Find.FindNext();
+        if (!IsDisposed) ReportFindStatus();
+        return true;
+    }
+    internal void StopFind()
+    {
+        findTerm = null;
+        try { if (web.CoreWebView2 is { } core) core.Find.Stop(); }
+        catch (Exception ex) when (ex is InvalidCastException or NotImplementedException or COMException) { }
+    }
+
     internal async Task<PdfPageViewState?> CapturePageViewAsync()
     {
         if (!ready || web.CoreWebView2 is null) return null;
@@ -220,6 +258,7 @@ internal sealed class PdfView : UserControl
     {
         if (IsDisposed || Disposing) return;
         document = targetDocument;
+        findTerm = null;
         initialPage = page;
         CancelPageInput();
         if (web.CoreWebView2 is null) return;

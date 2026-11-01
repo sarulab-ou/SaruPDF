@@ -177,7 +177,9 @@ internal static class Program
         foreach (var (name, run) in AssociationTests.Cases()) await Test(name, run);
         foreach (var (name, run) in UiRegressionTests.Cases(a)) await Test(name, run);
         foreach (var (name, run) in PageNavigationTests.Cases()) await Test(name, run);
+        foreach (var (name, run) in PdfSearchTests.Cases(root)) await Test(name, run);
         await Test("rendered PDF changes pages with number + Enter and respects Escape", () => PageNavigationTests.VerifyRenderingAsync(root));
+        await Test("Ctrl+F searches and highlights PDF matches in all modes", () => PdfSearchTests.VerifyUiAsync(root));
         foreach (var (name, run) in PdfEditingTests.Cases(root)) await Test(name, run);
         await Test("direct page selection and gap context menu move multiple rendered pages", () => PdfEditingTests.VerifyEditorRenderingAsync(root));
         await Test("Edit menu and Ctrl+X/V/S save the reordered PDF and return to viewing", () => PdfEditingTests.VerifyWindowCommandsAsync(root));

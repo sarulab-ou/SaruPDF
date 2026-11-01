@@ -12,6 +12,15 @@ internal sealed class PdfWindow : Form
         AccessibleName = "表示中の PDF のフルパス"
     };
     private readonly Panel errorPanel = new() { Dock = DockStyle.Top, Height = 108, Visible = false, Padding = new Padding(12), BackColor = Color.FromArgb(255, 241, 224) };
+    private readonly Panel searchPanel = new() { Name = "SearchPanel", Dock = DockStyle.Top, Visible = false, Padding = new Padding(8, 4, 8, 4), BackColor = Color.FromArgb(241, 243, 247) };
+    private readonly TextBox searchBox = new() { Name = "SearchText", Dock = DockStyle.Fill, AccessibleName = "検索する文字列" };
+    private readonly Label searchStatus = new() { Name = "SearchStatus", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
+    private readonly Button searchNext = new() { Name = "SearchNext", Text = "次を検索", Dock = DockStyle.Fill, AutoSize = false };
+    private readonly Button searchPrevious = new() { Name = "SearchPrevious", Text = "前を検索", Dock = DockStyle.Fill, AutoSize = false };
+    private IReadOnlyList<PdfSearchMatch> searchMatches = [];
+    private string? searchTerm;
+    private int searchIndex = -1, searchRevision = -1, searchGeneration;
+    private bool searchBusy;
     private readonly TextBox errorText = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(255, 241, 224), AccessibleName = "エラー" };
     private PdfView? viewer;
     private readonly string? userDataFolder;
@@ -62,7 +71,9 @@ internal sealed class PdfWindow : Form
         file.DropDownItems.Add(new ToolStripMenuItem("このウィンドウを閉じる(&W)", null, (_, _) => Close()) { ShortcutKeys = Keys.Control | Keys.W });
         menu.Items.Add(file);
         var edit = new ToolStripMenuItem("編集(&E)");
-        edit.DropDownItems.AddRange([viewMode, editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, selectPages, new ToolStripSeparator(), rotateRight, rotateLeft, new ToolStripSeparator(), undoEdit, redoEdit]);
+        var find = new ToolStripMenuItem("検索(&F)…") { ShortcutKeys = Keys.Control | Keys.F };
+        find.Click += (_, _) => OpenSearch();
+        edit.DropDownItems.AddRange([find, new ToolStripSeparator(), viewMode, editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, selectPages, new ToolStripSeparator(), rotateRight, rotateLeft, new ToolStripSeparator(), undoEdit, redoEdit]);
         viewMode.Click += (_, _) => { if (editor is not null) ToggleEditMode(); else if (commentEditor is not null) ToggleCommentMode(); };
         editMode.Click += (_, _) => { if (editor is null) ToggleEditMode(); };
         commentMode.Click += (_, _) => { if (commentEditor is null) ToggleCommentMode(); };
@@ -85,6 +96,22 @@ internal sealed class PdfWindow : Form
         var addressBar = new Panel { Dock = DockStyle.Top, Height = Font.Height + 14, Padding = new Padding(8, 5, 8, 5), BackColor = Color.FromArgb(247, 248, 251) };
         addressBar.Controls.Add(pathBox);
 
+        searchPanel.Height = Font.Height + 20;
+        var searchLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = Padding.Empty };
+        searchLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        searchLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
+        searchLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
+        searchLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        searchLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
+        var closeSearch = new Button { Name = "SearchClose", Text = "×", Dock = DockStyle.Fill, AccessibleName = "検索を閉じる" };
+        searchLayout.Controls.Add(searchBox, 0, 0); searchLayout.Controls.Add(searchPrevious, 1, 0);
+        searchLayout.Controls.Add(searchNext, 2, 0); searchLayout.Controls.Add(searchStatus, 3, 0); searchLayout.Controls.Add(closeSearch, 4, 0);
+        searchPanel.Controls.Add(searchLayout);
+        searchBox.TextChanged += (_, _) => ResetSearch();
+        searchNext.Click += async (_, _) => await FindNextAsync(false);
+        searchPrevious.Click += async (_, _) => await FindNextAsync(true);
+        closeSearch.Click += (_, _) => CloseSearch();
+
         var welcome = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(32) };
         welcome.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         welcome.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
@@ -99,6 +126,7 @@ internal sealed class PdfWindow : Form
         content.Controls.Add(welcome);
         Controls.Add(content);
         Controls.Add(errorPanel);
+        Controls.Add(searchPanel);
         Controls.Add(addressBar);
         Controls.Add(menu);
         Shown += async (_, _) => { if (viewer is not null) await viewer.LoadAsync(); };
@@ -126,6 +154,7 @@ internal sealed class PdfWindow : Form
         viewer.OpenDialogRequested += SelectFiles;
         viewer.CloseRequested += Close;
         viewer.CommandKeyRequested += TryHandleEditKey;
+        viewer.FindStatusChanged += (index, count) => { if (searchPanel.Visible && ActiveViewer == viewer && searchTerm is not null) ShowSearchStatus(index, count); };
         content.Controls.Add(viewer);
     }
 
@@ -185,8 +214,83 @@ internal sealed class PdfWindow : Form
         if (dialog.ShowDialog(this) == DialogResult.OK) OpenRequested?.Invoke(dialog.FileNames);
     }
 
+    private PdfPageCanvas? SearchCanvas => editor?.Viewer ?? (PdfPageCanvas?)commentEditor?.Viewer;
+    private void OpenSearch()
+    {
+        CancelPageInput(); searchPanel.Visible = true; searchBox.Focus(); searchBox.SelectAll();
+    }
+    private void CloseSearch()
+    {
+        ResetSearch(); searchPanel.Visible = false;
+        if (SearchCanvas is { } canvas) canvas.Focus(); else viewer?.Focus();
+    }
+    private void ResetSearch()
+    {
+        searchGeneration++; searchTerm = null; searchRevision = -1; searchIndex = -1; searchMatches = [];
+        viewer?.StopFind(); SearchCanvas?.ShowSearchMatch(null); searchStatus.Text = "";
+    }
+    private void ShowSearchStatus(int index, int count) => searchStatus.Text = count <= 0 ? "一致なし" : $"{Math.Clamp(index, 1, count)} / {count}";
+    private async Task FindNextAsync(bool previous)
+    {
+        if (searchBusy) return;
+        string term = searchBox.Text;
+        if (document is null) { searchStatus.Text = "PDFを開いてください"; return; }
+        if (string.IsNullOrWhiteSpace(term)) { ResetSearch(); searchStatus.Text = "検索語を入力"; return; }
+        int generation = ++searchGeneration;
+        searchBusy = true; searchNext.Enabled = searchPrevious.Enabled = false; searchStatus.Text = "検索中…";
+        try
+        {
+            if (ActiveSession is not { } session)
+            {
+                searchTerm = term;
+                if (viewer is null || !await viewer.FindAsync(term, previous)) searchStatus.Text = "PDFを読込中";
+                if (generation != searchGeneration) viewer?.StopFind();
+                return;
+            }
+            int revision = session.Revision;
+            if (searchTerm != term || searchRevision != revision)
+            {
+                string? snapshot = session.WritePreview();
+                var found = snapshot is null ? [] : await Task.Run(() => PdfSearch.Find(PdfTextMap.Read(snapshot), term));
+                if (IsDisposed || generation != searchGeneration || !ReferenceEquals(ActiveSession, session) || session.Revision != revision) return;
+                searchMatches = found; searchTerm = term; searchRevision = revision;
+                searchIndex = searchMatches.Count == 0 ? -1 : previous ? searchMatches.Count - 1 : 0;
+            }
+            else if (searchMatches.Count > 0)
+                searchIndex = (searchIndex + (previous ? searchMatches.Count - 1 : 1)) % searchMatches.Count;
+            SearchCanvas?.ShowSearchMatch(searchIndex < 0 ? null : searchMatches[searchIndex]);
+            ShowSearchStatus(searchIndex + 1, searchMatches.Count);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            if (!IsDisposed && generation == searchGeneration) { searchStatus.Text = "検索できません"; ShowError("PDFを検索できませんでした。\n" + ex.Message); }
+        }
+        finally { searchBusy = false; if (!IsDisposed) searchNext.Enabled = searchPrevious.Enabled = true; }
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (searchPanel.Visible && searchBox.Focused)
+        {
+            if (keyData is Keys.F3 or (Keys.Shift | Keys.F3)) { _ = FindNextAsync((keyData & Keys.Shift) != 0); return true; }
+            if (keyData == Keys.Enter) { _ = FindNextAsync(false); return true; }
+            if (keyData == (Keys.Shift | Keys.Enter)) { _ = FindNextAsync(true); return true; }
+            if (keyData == Keys.Escape) { CloseSearch(); return true; }
+            if (keyData == (Keys.Control | Keys.A)) { searchBox.SelectAll(); return true; }
+            if (keyData == (Keys.Control | Keys.C) || keyData == (Keys.Control | Keys.X) || keyData == (Keys.Control | Keys.V))
+            {
+                try
+                {
+                    if (keyData == (Keys.Control | Keys.C)) searchBox.Copy();
+                    else if (keyData == (Keys.Control | Keys.X)) searchBox.Cut();
+                    else searchBox.Paste();
+                }
+                catch (System.Runtime.InteropServices.ExternalException) { ShowError("クリップボードを使用できませんでした。"); }
+                return true;
+            }
+            if (keyData == (Keys.Control | Keys.Z)) { searchBox.Undo(); return true; }
+            if ((keyData & Keys.Modifiers) is Keys.None or Keys.Shift) return base.ProcessCmdKey(ref msg, keyData);
+        }
         if (pathBox.Focused)
         {
             var modifiers = keyData & Keys.Modifiers;
@@ -218,6 +322,7 @@ internal sealed class PdfWindow : Form
         if (editor is not null)
         {
             if (!ConfirmFinishEditing()) return;
+            ResetSearch();
             content.Controls.Remove(editor);
             editor.Dispose(); editor = null;
             viewer.Visible = true;
@@ -230,6 +335,7 @@ internal sealed class PdfWindow : Form
         try
         {
             UseWaitCursor = true;
+            ResetSearch();
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
             AttachEditor(session, viewer.CapturePageViewAsync());
@@ -252,6 +358,7 @@ internal sealed class PdfWindow : Form
         if (commentEditor is not null)
         {
             if (!ConfirmFinishEditing()) return;
+            ResetSearch();
             content.Controls.Remove(commentEditor); commentEditor.Dispose(); commentEditor = null;
             viewer.Visible = true; viewer.NavigateDocument(document); _ = viewer.LoadAsync();
             UpdateEditMenus(); return;
@@ -259,6 +366,7 @@ internal sealed class PdfWindow : Form
         PdfEditSession? session = null;
         try
         {
+            ResetSearch();
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
             commentEditor = new PdfCommentEditor(session) { Visible = false };
@@ -287,6 +395,7 @@ internal sealed class PdfWindow : Form
 
     private void UpdateEditMenus()
     {
+        if (searchRevision >= 0 && ActiveSession is { } session && session.Revision != searchRevision) ResetSearch();
         editMode.Checked = editor is not null;
         commentMode.Checked = commentEditor is not null;
         viewMode.Checked = editor is null && commentEditor is null;
@@ -304,6 +413,9 @@ internal sealed class PdfWindow : Form
 
     private bool TryHandleEditKey(Keys keyData)
     {
+        if (keyData == (Keys.Control | Keys.F)) { BeginInvoke(OpenSearch); return true; }
+        if (searchPanel.Visible && keyData is Keys.F3 or (Keys.Shift | Keys.F3))
+        { BeginInvoke(async () => await FindNextAsync((keyData & Keys.Shift) != 0)); return true; }
         if (keyData == (Keys.Alt | Keys.D))
         {
             // WebView2 keyboard callbacks must return before changing focus.
