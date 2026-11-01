@@ -11,6 +11,7 @@ internal sealed class PdfEditor : UserControl
     internal int SelectedIndex => Viewer.SelectedPages.FirstOrDefault(-1);
     internal bool CanCut => !Session.HasPendingCut && Viewer.SelectedPages.Count > 0;
     internal bool CanCopy => CanCut;
+    internal bool CanRotate => CanCut;
     internal bool CanPaste => Session.HasPendingCut || clipboard.Current is not null;
     internal event Action? StateChanged;
     internal event Action<Exception>? Failed;
@@ -29,6 +30,7 @@ internal sealed class PdfEditor : UserControl
         Viewer.ImportRequested += index => ImportRequested?.Invoke(index);
         Viewer.UndoRequested += Undo;
         Viewer.RedoRequested += Redo;
+        Viewer.RotateRequested += Rotate;
         Viewer.Failed += ex => Failed?.Invoke(ex);
         this.clipboard.Changed += UpdateState;
         RefreshPages(0);
@@ -49,6 +51,11 @@ internal sealed class PdfEditor : UserControl
     {
         if (!CanCopy) return;
         Execute(() => clipboard.Set(Session.Copy(Viewer.SelectedPages)));
+    }
+    internal void Rotate(int degrees)
+    {
+        if (!CanRotate) return;
+        Execute(() => { Session.Rotate(Viewer.SelectedPages, degrees); Viewer.SetRotations(Session.Rotations); UpdateState(); });
     }
     private void PasteAt(int index)
     {
@@ -79,6 +86,7 @@ internal sealed class PdfEditor : UserControl
     private void RefreshPages(int selection, int count = 1)
     {
         Viewer.SetOrder(Session.Pages, selection, count);
+        Viewer.SetRotations(Session.Rotations);
         if (loaded) _ = LoadAsync();
         UpdateState();
     }

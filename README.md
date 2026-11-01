@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.4/SaruPDF-0.7.4-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.5/SaruPDF-0.7.5-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -18,11 +18,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.4 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.4/SaruPDF-0.7.4-Setup-x64.exe)**
+**[SaruPDF v0.7.5 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.5/SaruPDF-0.7.5-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.4) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.4/SaruPDF-0.7.4-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.5) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.5/SaruPDF-0.7.5-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.4** です。
+現在の公開版は **v0.7.5** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -45,7 +45,7 @@ SaruPDFを起動し、**ファイル → PDF を開く**または **Ctrl+O** で
 | モード | 操作 |
 | --- | --- |
 | Viewモード | PDFの閲覧、文字の選択やリンクの操作 |
-| ページ操作モード | ページの選択、並べ替え、コピー、PDFのインポート |
+| ページ操作モード | ページの選択、並べ替え、回転、コピー、PDFのインポート |
 | コメントモード | 本文の選択、コメントの追加・編集 |
 
 モードを切り替えても表示倍率を引き継ぎます。ページ操作モードではWindows 11のタイトルバーが青色、コメントモードでは緑色になります。未保存の変更があるときは、モードの切り替えや終了の際に保存するか確認します。
@@ -54,7 +54,8 @@ SaruPDFを起動し、**ファイル → PDF を開く**または **Ctrl+O** で
 
 1. **編集 → ページ操作モード**を選び、PDF上のページをクリックします。Ctrl+クリックで離れたページを追加・解除、Shift+クリックで範囲選択できます。
 2. **Ctrl+X**で切り取り、挿入先のページ間を右クリックして**「ここに貼り付け」**を選びます。複数ページは元の順番でまとめて挿入されます。
-3. **Ctrl+S**で保存します。元のPDFを残す場合は**Ctrl+Shift+S**で名前を付けて保存します。
+3. 選択したページは**編集 → 右に90度／左に90度**、またはページ上の右クリックメニューから回転できます。**Ctrl+R／Ctrl+L**でも回転でき、複数ページを一度に回転できます。**編集 → 全部選択**またはCtrl+Aで全ページを選択します。
+4. **Ctrl+S**で保存します。元のPDFを残す場合は**Ctrl+Shift+S**で名前を付けて保存します。
 
 コピーするときはページを選んで**Ctrl+C**を押し、別のPDFのページ操作モードで貼り付けます。コピー元は変更されません。コピーしたページはSaruPDF内で共有され、アプリを終了すると消去されます。他のPDFアプリとのページの受け渡しには対応していません。
 
@@ -84,6 +85,7 @@ SaruPDFを起動し、**ファイル → PDF を開く**または **Ctrl+O** で
 | ページを範囲選択（ページ操作モード） | Shift+移動キー、Shift+クリック |
 | ページを追加・解除／全選択（ページ操作モード） | Ctrl+クリック / Ctrl+A |
 | ページを切り取り／コピー／貼り付け（ページ操作モード） | Ctrl+X / Ctrl+C / Ctrl+V |
+| 選択ページを右／左に90度回転（ページ操作モード） | Ctrl+R / Ctrl+L |
 | 拡大・縮小（ページ操作モード） | Ctrl+「+」/ Ctrl+「-」/ Ctrl+ホイール |
 | 文字を選択（コメントモード） | マウスドラッグ / Shift+移動キー |
 | コメントを追加（コメントモード） | 文字を選択してEnter / 右クリック |
@@ -114,6 +116,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは81件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは84件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

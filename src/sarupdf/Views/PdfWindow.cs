@@ -27,6 +27,9 @@ internal sealed class PdfWindow : Form
     private readonly ToolStripMenuItem cutPage = new("ページを切り取り(&T)") { ShortcutKeys = Keys.Control | Keys.X, Enabled = false };
     private readonly ToolStripMenuItem copyPage = new("ページをコピー(&C)") { ShortcutKeys = Keys.Control | Keys.C, Enabled = false };
     private readonly ToolStripMenuItem pastePage = new("ページを貼り付け(&P)") { ShortcutKeys = Keys.Control | Keys.V, Enabled = false };
+    private readonly ToolStripMenuItem rotateRight = new("右に90度(&R)") { ShortcutKeys = Keys.Control | Keys.R, Enabled = false };
+    private readonly ToolStripMenuItem rotateLeft = new("左に90度(&L)") { ShortcutKeys = Keys.Control | Keys.L, Enabled = false };
+    private readonly ToolStripMenuItem selectPages = new("全部選択(&A)") { ShortcutKeys = Keys.Control | Keys.A, Enabled = false };
     private readonly ToolStripMenuItem undoEdit = new("元に戻す(&U)") { ShortcutKeys = Keys.Control | Keys.Z, Enabled = false };
     private readonly ToolStripMenuItem redoEdit = new("やり直し(&R)") { ShortcutKeys = Keys.Control | Keys.Y, Enabled = false };
     private readonly ToolStripMenuItem save = new("保存(&S)") { ShortcutKeys = Keys.Control | Keys.S, Enabled = false };
@@ -59,13 +62,16 @@ internal sealed class PdfWindow : Form
         file.DropDownItems.Add(new ToolStripMenuItem("このウィンドウを閉じる(&W)", null, (_, _) => Close()) { ShortcutKeys = Keys.Control | Keys.W });
         menu.Items.Add(file);
         var edit = new ToolStripMenuItem("編集(&E)");
-        edit.DropDownItems.AddRange([viewMode, editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, new ToolStripSeparator(), undoEdit, redoEdit]);
+        edit.DropDownItems.AddRange([viewMode, editMode, commentMode, new ToolStripSeparator(), cutPage, copyPage, pastePage, selectPages, new ToolStripSeparator(), rotateRight, rotateLeft, new ToolStripSeparator(), undoEdit, redoEdit]);
         viewMode.Click += (_, _) => { if (editor is not null) ToggleEditMode(); else if (commentEditor is not null) ToggleCommentMode(); };
         editMode.Click += (_, _) => { if (editor is null) ToggleEditMode(); };
         commentMode.Click += (_, _) => { if (commentEditor is null) ToggleCommentMode(); };
         cutPage.Click += (_, _) => editor?.Cut();
         copyPage.Click += (_, _) => editor?.Copy();
         pastePage.Click += (_, _) => editor?.Paste();
+        rotateRight.Click += (_, _) => editor?.Rotate(90);
+        rotateLeft.Click += (_, _) => editor?.Rotate(-90);
+        selectPages.Click += (_, _) => editor?.Viewer.SelectAll();
         undoEdit.Click += (_, _) => { if (commentEditor is not null) commentEditor.Undo(); else editor?.Undo(); };
         redoEdit.Click += (_, _) => { if (commentEditor is not null) commentEditor.Redo(); else editor?.Redo(); };
         menu.Items.Add(edit);
@@ -288,6 +294,8 @@ internal sealed class PdfWindow : Form
         cutPage.Enabled = editor?.CanCut == true;
         copyPage.Enabled = editor?.CanCopy == true;
         pastePage.Enabled = editor?.CanPaste == true;
+        rotateRight.Enabled = rotateLeft.Enabled = editor?.CanRotate == true;
+        selectPages.Enabled = editor?.Session.PageCount > 0;
         undoEdit.Enabled = ActiveSession?.CanUndo == true;
         redoEdit.Enabled = ActiveSession?.CanRedo == true;
         save.Enabled = ActiveSession is { PageCount: > 0, HasPendingCut: false, IsDirty: true };
@@ -330,6 +338,8 @@ internal sealed class PdfWindow : Form
             Keys.Control | Keys.X => () => editor?.Cut(),
             Keys.Control | Keys.C => () => editor?.Copy(),
             Keys.Control | Keys.V => () => editor?.Paste(),
+            Keys.Control | Keys.R => () => editor?.Rotate(90),
+            Keys.Control | Keys.L => () => editor?.Rotate(-90),
             Keys.Control | Keys.Z => () => editor?.Undo(),
             Keys.Control | Keys.Y => () => editor?.Redo(),
             Keys.Control | Keys.A => () => editor?.Viewer.SelectAll(),

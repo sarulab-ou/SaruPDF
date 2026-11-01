@@ -6,7 +6,7 @@ namespace SaruPdf.Documents;
 // Stable page IDs refer to immutable original/copied PDF snapshots.
 internal sealed class PdfEditSession : IDisposable
 {
-    private sealed record State(int[] Pages, int[] Cut, PdfCommentMark[] Comments);
+    private sealed record State(int[] Pages, int[] Cut, PdfCommentMark[] Comments, Dictionary<int, int> Rotations);
     private readonly byte[] original;
     private readonly List<int> pages;
     private sealed record ImportedPage(PdfPageBundle Bundle, int Page);
@@ -21,6 +21,9 @@ internal sealed class PdfEditSession : IDisposable
     private int[] cut = [];
     private readonly List<PdfCommentMark> comments = [];
     private PdfCommentMark[] savedComments = [];
+    private readonly Dictionary<int, int> rotations = [];
+    private Dictionary<int, int> savedRotations = [];
+    internal IReadOnlyDictionary<int, int> Rotations => rotations;
     private readonly HashSet<Guid> originalCommentIds = [];
     internal IReadOnlyList<PdfCommentMark> Comments => comments.AsReadOnly();
 
@@ -31,7 +34,8 @@ internal sealed class PdfEditSession : IDisposable
     internal int? CutPage => cut.Length == 0 ? null : cut[0];
     internal IReadOnlyList<int> CutPages => Array.AsReadOnly(cut);
     internal bool HasPendingCut => cut.Length != 0;
-    internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages) || !comments.SequenceEqual(savedComments);
+    internal bool IsDirty => HasPendingCut || !pages.SequenceEqual(savedPages) || !comments.SequenceEqual(savedComments) ||
+        rotations.Count != savedRotations.Count || rotations.Any(pair => !savedRotations.TryGetValue(pair.Key, out int value) || value != pair.Value);
     internal bool CanUndo => undo.Count > 0;
     internal bool CanRedo => redo.Count > 0;
 
@@ -57,6 +61,21 @@ internal sealed class PdfEditSession : IDisposable
     }
 
     internal void Cut(int index) => Cut([index]);
+
+    internal void Rotate(IEnumerable<int> indexes, int degrees)
+    {
+        if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けてください。");
+        int[] selected = indexes.Distinct().ToArray();
+        if (selected.Length == 0 || selected.Any(index => index < 0 || index >= PageCount)) throw new ArgumentOutOfRangeException(nameof(indexes));
+        if (degrees is not (90 or -90)) throw new ArgumentOutOfRangeException(nameof(degrees));
+        Remember();
+        foreach (int index in selected)
+        {
+            int id = pages[index];
+            int value = (rotations.GetValueOrDefault(id) + degrees + 360) % 360;
+            if (value == 0) rotations.Remove(id); else rotations[id] = value;
+        }
+    }
 
     internal void Cut(IEnumerable<int> indexes)
     {
@@ -151,7 +170,7 @@ internal sealed class PdfEditSession : IDisposable
         if (comments[index].Text.ReplaceLineEndings("\r") == text) return;
         Remember(); comments[index] = comments[index] with { Text = text, Modified = DateTime.UtcNow };
     }
-    private State Snapshot() => new([.. pages], [.. cut], [.. comments]);
+    private State Snapshot() => new([.. pages], [.. cut], [.. comments], new(rotations));
     private void Remember() { undo.Push(Snapshot()); redo.Clear(); }
     private bool Restore(Stack<State> from, Stack<State> to)
     {
@@ -159,6 +178,7 @@ internal sealed class PdfEditSession : IDisposable
         to.Push(Snapshot());
         pages.Clear(); pages.AddRange(state.Pages); cut = state.Cut;
         comments.Clear(); comments.AddRange(state.Comments);
+        rotations.Clear(); foreach (var pair in state.Rotations) rotations.Add(pair.Key, pair.Value);
         return true;
     }
 
@@ -246,7 +266,11 @@ internal sealed class PdfEditSession : IDisposable
                 pdf.Pages.Insert(i, source.Pages[page.Page]);
             }
             for (int i = 0; i < pages.Count; i++)
+            {
+                if (rotations.TryGetValue(pages[i], out int rotation))
+                    pdf.Pages[i].Rotate = ((pdf.Pages[i].Rotate + rotation) % 360 + 360) % 360;
                 foreach (var comment in comments.Where(comment => comment.PageId == pages[i])) PdfComments.Write(pdf, pdf.Pages[i], comment);
+            }
             using var output = new MemoryStream();
             pdf.Save(output, false);
             return output.ToArray();
@@ -288,6 +312,7 @@ internal sealed class PdfEditSession : IDisposable
         savedHash = SHA256.HashData(result);
         savedPages = [.. pages];
         savedComments = [.. comments];
+        savedRotations = new(rotations);
     }
 
     public void Dispose()

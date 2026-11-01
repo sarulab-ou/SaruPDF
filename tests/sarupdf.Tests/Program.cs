@@ -186,6 +186,7 @@ internal static class Program
         await Test("two PDF windows copy multiple pages, close source, paste repeatedly and save real rendering", () => PdfCopyTests.VerifyWindowsAsync(root));
         foreach (var (name, run) in PageOperationTests.Cases(root)) await Test(name, run);
         await Test("page-operation plus/minus shortcuts zoom and preserve the visible page", () => PageOperationTests.VerifyZoomAsync(root));
+        await Test("rotation menu, context menu and shortcuts rotate selected pages visibly", () => PageOperationTests.VerifyRotationUiAsync(root));
         await Test("boundary import menu inserts all PDF pages into existing documents", () => PageOperationTests.VerifyBoundaryImportAsync(root));
         await Test("page-operation mode inherits actual PDF zoom and removes Ctrl+N", () => PageOperationTests.VerifyInheritedZoomAsync(root));
         await Test("arrow keys move pages and Shift extends, shrinks and reverses the selection", () => PageOperationTests.VerifyArrowSelectionAsync(root));

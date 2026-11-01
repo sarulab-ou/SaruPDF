@@ -47,6 +47,45 @@ internal static class PageOperationTests
             Throws<InvalidOperationException>(() => session.ImportFiles(0, [valid]));
             Check(session.HasPendingCut && session.PageCount == 5);
         });
+        yield return ("page rotations preserve original orientation through save, undo, copy and reorder", () =>
+        {
+            string path = Fixture("Rotation source"), output = Path.Combine(root, "rotation-" + Guid.NewGuid().ToString("N") + ".pdf");
+            using (var pdf = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify)) { pdf.Pages[0].Rotate = 90; pdf.Save(path); }
+            byte[] original = File.ReadAllBytes(path);
+            using var session = new PdfEditSession(path);
+            Throws<ArgumentOutOfRangeException>(() => session.Rotate([0, 3], 90));
+            Throws<ArgumentOutOfRangeException>(() => session.Rotate([0], 45));
+            Check(!session.IsDirty && !session.CanUndo);
+            session.Rotate([0, 2, 0], 90); Check(session.IsDirty && session.Rotations[0] == 90 && session.Rotations[2] == 90);
+            session.Undo(); Check(!session.IsDirty && session.Rotations.Count == 0);
+            session.Redo(); session.Save(output); Check(!session.IsDirty && File.ReadAllBytes(path).SequenceEqual(original));
+            using (var pdf = PdfSharp.Pdf.IO.PdfReader.Open(output, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import))
+                Check(pdf.Pages[0].Rotate == 180 && pdf.Pages[1].Rotate == 0 && pdf.Pages[2].Rotate == 90);
+            var bundle = session.Copy([0, 2]); session.PasteCopy(1, bundle); session.Cut(0); session.Paste(session.PageCount);
+            session.Save(output);
+            using (var pdf = PdfSharp.Pdf.IO.PdfReader.Open(output, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import))
+                Check(pdf.Pages.Cast<PdfSharp.Pdf.PdfPage>().Select(page => page.Rotate).SequenceEqual([180, 90, 0, 90, 180]));
+            session.Rotate([0, 4], -90); session.Save(output);
+            using (var pdf = PdfSharp.Pdf.IO.PdfReader.Open(output, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import))
+                Check(pdf.Pages[0].Rotate == 90 && pdf.Pages[4].Rotate == 90);
+            session.Undo(); Check(session.IsDirty); session.Redo(); Check(!session.IsDirty);
+            session.Cut(0); Throws<InvalidOperationException>(() => session.Rotate([0], 90));
+        });
+        yield return ("rotating an annotated page preserves the comment and its original PDF coordinates", () =>
+        {
+            string path = Fixture("Rotation comment"), output = Path.Combine(root, "rotation-comment-" + Guid.NewGuid().ToString("N") + ".pdf");
+            var selected = new PdfCaretSelection(PdfTextMap.Read(path)); selected.Set(8, true);
+            using var session = new PdfEditSession(path); session.AddComment(selected.Regions(), "Rotation annotation");
+            var original = session.Comments.Single(); session.Rotate([0], 90); session.Save(output);
+            using var saved = PdfSharp.Pdf.IO.PdfReader.Open(output, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+            Check(saved.Pages[0].Rotate == 90);
+            var restored = PdfComments.ReadManaged(saved).Single();
+            var before = original.Quads.SelectMany(quad => quad.Points).ToArray();
+            var after = restored.Quads.SelectMany(quad => quad.Points).ToArray();
+            Check(restored.Text == original.Text && before.Length == after.Length &&
+                before.Zip(after).All(pair => Math.Abs(pair.First.X - pair.Second.X) < .001 && Math.Abs(pair.First.Y - pair.Second.Y) < .001));
+            Check(saved.Pages[0].Annotations.Count == 2);
+        });
 
     }
 
@@ -71,6 +110,50 @@ internal static class PageOperationTests
         Key(window, Keys.Control | Keys.Subtract); canvas.SelectPage(1);
         using (var menu = canvas.CreatePageMenu(canvas.GapPoint(0)))
             Check(menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "ImportPdf").Enabled);
+    });
+
+    internal static Task VerifyRotationUiAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string path = Path.Combine(root, "rotate-ui-" + Guid.NewGuid().ToString("N") + ".pdf");
+        using (var pdf = new PdfSharp.Pdf.PdfDocument())
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var page = pdf.AddPage(); page.Width = PdfSharp.Drawing.XUnit.FromPoint(300); page.Height = PdfSharp.Drawing.XUnit.FromPoint(500);
+                using var graphics = PdfSharp.Drawing.XGraphics.FromPdfPage(page);
+                graphics.DrawRectangle(PdfSharp.Drawing.XBrushes.Red, 0, 0, 100, 100);
+                graphics.DrawRectangle(PdfSharp.Drawing.XBrushes.Blue, 200, 400, 100, 100);
+            }
+            pdf.Save(path);
+        }
+        using var window = new PdfWindow { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(path)); window.Show(); window.ToggleEditMode();
+        var editor = Editor(window); var canvas = editor.Viewer;
+        await WaitUntilAsync(() => editor.Visible && canvas.IsPageRendered(0));
+        var menu = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "編集(&E)");
+        var selectAll = menu.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text?.StartsWith("全部選択") == true);
+        var right = menu.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text?.StartsWith("右に90度") == true);
+        var left = menu.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text?.StartsWith("左に90度") == true);
+        Check(selectAll.Enabled && right.Enabled && left.Enabled);
+        selectAll.PerformClick(); Check(canvas.SelectedPages.SequenceEqual([0, 1]));
+        canvas.SelectPage(1); Key(window, Keys.Control | Keys.A);
+        await WaitUntilAsync(() => canvas.SelectedPages.SequenceEqual([0, 1]));
+        right.PerformClick(); Check(editor.Session.Rotations.Count == 2 && canvas.SelectedPages.Count == 2);
+        await WaitUntilAsync(() => canvas.IsPageRendered(0));
+        Check(canvas.PageBounds(0).Width > canvas.PageBounds(0).Height);
+        var images = (Dictionary<int, Bitmap>)typeof(PdfPageCanvas).GetField("images", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(canvas)!;
+        var image = images[editor.Session.Pages[0]]; var topRight = image.GetPixel(image.Width * 9 / 10, image.Height / 10);
+        Check(topRight.R > 200 && topRight.B < 60);
+        var bounds = canvas.PageBounds(0); var point = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        using (var popup = canvas.CreatePageMenu(point)) popup.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "RotateLeft").PerformClick();
+        Check(!editor.Session.IsDirty && canvas.SelectedPages.Count == 2);
+        Key(window, Keys.Control | Keys.R); await WaitUntilAsync(() => editor.Session.Rotations.Count == 2);
+        Key(window, Keys.Control | Keys.L); await WaitUntilAsync(() => !editor.Session.IsDirty);
+        bounds = canvas.PageBounds(0); point = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        using (var popup = canvas.CreatePageMenu(point))
+            Check(popup.Items.OfType<ToolStripMenuItem>().Any(item => item.Name == "RotateRight"));
+        Check(window.SaveToPath(Path.Combine(root, "rotation-ui-saved-" + Guid.NewGuid().ToString("N") + ".pdf")));
+        host.Controls.Remove(window);
     });
 
     internal static Task VerifyBoundaryImportAsync(string root) => OnSurfaceAsync(async host =>

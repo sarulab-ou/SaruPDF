@@ -12,6 +12,7 @@ internal class PdfPageCanvas : ScrollableControl
 {
     private readonly SortedSet<int> selected = [];
     private readonly Dictionary<int, Bitmap> images = [];
+    private readonly Dictionary<int, int> rotations = [];
     private readonly PageNumberInput pageInput = new();
     private readonly List<Rectangle> bounds = [];
     private NativePdf? pdf;
@@ -50,6 +51,7 @@ internal class PdfPageCanvas : ScrollableControl
     internal event Action<int>? ImportRequested;
     internal event Action? UndoRequested;
     internal event Action? RedoRequested;
+    internal event Action<int>? RotateRequested;
     internal event Action<Exception>? Failed;
 
     internal PdfPageCanvas()
@@ -122,6 +124,12 @@ internal class PdfPageCanvas : ScrollableControl
         LayoutPages();
         if (bounds.Count > 0) ScrollToPage(Math.Min(start, bounds.Count - 1));
         SelectionChanged?.Invoke(); Invalidate(); RequestRender();
+    }
+    internal void SetRotations(IReadOnlyDictionary<int, int> values)
+    {
+        if (rotations.Count == values.Count && rotations.All(pair => values.TryGetValue(pair.Key, out int value) && value == pair.Value)) return;
+        rotations.Clear(); foreach (var pair in values) rotations.Add(pair.Key, pair.Value);
+        epoch++; ClearImages(); LayoutPages(); ScrollToPage(currentPage); RequestRender(); Invalidate();
     }
     internal void SelectPage(int page)
     {
@@ -201,6 +209,10 @@ internal class PdfPageCanvas : ScrollableControl
             { Name = "CutPages", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+X" });
             menu.Items.Add(new ToolStripMenuItem($"選択した {selected.Count} ページをコピー", null, (_, _) => CopyRequested?.Invoke())
             { Name = "CopyPages", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+C" });
+            menu.Items.Add(new ToolStripMenuItem("右に90度", null, (_, _) => RotateRequested?.Invoke(90))
+            { Name = "RotateRight", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+R" });
+            menu.Items.Add(new ToolStripMenuItem("左に90度", null, (_, _) => RotateRequested?.Invoke(-90))
+            { Name = "RotateLeft", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+L" });
             AddPaste(menu, "このページの前に貼り付け", hit.Page);
             AddPaste(menu, "このページの後に貼り付け", hit.Page + 1);
         }
@@ -341,17 +353,22 @@ internal class PdfPageCanvas : ScrollableControl
     private void LayoutPages()
     {
         if (sizes.Count == 0 || ClientSize.Width <= 0) return;
-        float maximumWidth = Math.Max(sizes.Max(size => size.Width), order.Any(id => id >= sizes.Count) ? 595 : 0);
+        SizeF DisplaySize(int id)
+        {
+            var size = id < sizes.Count ? sizes[id] : new SizeF(595, 842);
+            return rotations.GetValueOrDefault(id) is 90 or 270 ? new SizeF(size.Height, size.Width) : size;
+        }
+        float maximumWidth = Math.Max(Enumerable.Range(0, sizes.Count).Max(id => DisplaySize(id).Width), order.Any(id => id >= sizes.Count) ? 595 : 0);
         int width = Math.Max(1, (int)((pixelsPerUnit is { } scaleFactor ? maximumWidth * scaleFactor
             : Math.Max(120, ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 48)) * zoom));
         if (layoutWidth != width) { layoutWidth = width; epoch++; ClearImages(); }
         float scale = width / maximumWidth;
-        int HeightOf(int id) => Math.Max(1, (int)((id < sizes.Count ? sizes[id].Height : 842) * scale));
+        int HeightOf(int id) => Math.Max(1, (int)(DisplaySize(id).Height * scale));
         int y = order.Length == 0 ? PageGap : Math.Max(PageGap, (ClientSize.Height - HeightOf(order[0])) / 2);
         bounds.Clear();
         foreach (int original in order)
         {
-            var size = original < sizes.Count ? sizes[original] : new SizeF(595, 842);
+            var size = DisplaySize(original);
             int w = Math.Max(1, (int)(size.Width * scale));
             int h = Math.Max(1, (int)(size.Height * scale));
             bounds.Add(new Rectangle(24 + (width - w) / 2, y, w, h)); y += h + PageGap;
@@ -432,15 +449,18 @@ internal class PdfPageCanvas : ScrollableControl
                     var size = bounds[index].Size;
                     double reduction = Math.Min(1, Math.Min(3000d / size.Width, Math.Sqrt(8_000_000d / ((double)size.Width * size.Height))));
                     var source = renderPages[original];
+                    int rotation = rotations.GetValueOrDefault(original);
+                    bool sideways = rotation is 90 or 270;
                     using var page = source.Document.GetPage(source.Page);
                     using var stream = new InMemoryRandomAccessStream();
                     await page.RenderToStreamAsync(stream, new PdfPageRenderOptions
-                    { DestinationWidth = (uint)Math.Max(1, (int)(size.Width * reduction)), DestinationHeight = (uint)Math.Max(1, (int)(size.Height * reduction)) });
+                    { DestinationWidth = (uint)Math.Max(1, (int)((sideways ? size.Height : size.Width) * reduction)), DestinationHeight = (uint)Math.Max(1, (int)((sideways ? size.Width : size.Height) * reduction)) });
                     if (version != epoch || IsDisposed) break;
                     stream.Seek(0);
                     using var adapter = stream.AsStreamForRead();
                     using var decoded = new Bitmap(adapter);
                     var bitmap = new Bitmap(decoded);
+                    if (rotation != 0) bitmap.RotateFlip(rotation switch { 90 => RotateFlipType.Rotate90FlipNone, 180 => RotateFlipType.Rotate180FlipNone, _ => RotateFlipType.Rotate270FlipNone });
                     if (images.Remove(original, out var previous)) previous.Dispose();
                     images.Add(original, bitmap); Invalidate();
                 }
