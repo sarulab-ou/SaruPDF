@@ -63,6 +63,20 @@ internal class PdfPageCanvas : ScrollableControl
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.Selectable, true);
     }
     internal void InheritView(PdfPageViewState? state) => initialView = state;
+    internal void ChangeView(PdfViewCommand command)
+    {
+        if (CapturePageView() is not { } state) return;
+        if (command == PdfViewCommand.ZoomIn) { SetZoom(zoom * 1.2f); return; }
+        if (command == PdfViewCommand.ZoomOut) { SetZoom(zoom / 1.2f); return; }
+        int id = order[state.Page]; var size = sizes[id];
+        bool rotated = rotations.GetValueOrDefault(id) is 90 or 270;
+        float width = rotated ? size.Height : size.Width, height = rotated ? size.Width : size.Height;
+        float scale = Math.Max(1, ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 48) / width;
+        if (command == PdfViewCommand.FitPage) scale = Math.Min(scale, Math.Max(1, ClientSize.Height - 48) / height);
+        pixelsPerUnit = scale; zoom = 1; LayoutPages();
+        RestorePosition(command == PdfViewCommand.FitPage ? state with { CenterX = .5, CenterY = .5 } : state);
+        RequestRender(); Invalidate();
+    }
     internal async Task LoadAsync(string path)
     {
         var loaded = await NativePdf.LoadFromFileAsync(await StorageFile.GetFileFromPathAsync(path));
@@ -97,9 +111,11 @@ internal class PdfPageCanvas : ScrollableControl
             }
             if (changed)
             {
-                if (initialView is { } state && state.Page < sizes.Count)
+                var inherited = initialView;
+                if (inherited is { } state && state.Page < order.Length)
                 {
-                    pixelsPerUnit = (float)(state.Width / sizes[state.Page].Width);
+                    int id = order[state.Page];
+                    pixelsPerUnit = (float)(state.Width / (rotations.GetValueOrDefault(id) is 90 or 270 ? sizes[id].Height : sizes[id].Width));
                     focus = state.Page;
                     selected.Clear(); selected.Add(focus);
                     anchor = currentPage = insertion = focus;
@@ -108,7 +124,8 @@ internal class PdfPageCanvas : ScrollableControl
                 }
                 bool followSelection = focus >= 0 && CurrentPage == focus && AutoScrollPosition == scroll;
                 epoch++; ClearImages(); LayoutPages();
-                if (followSelection) ScrollToPage(focus);
+                if (inherited is not null) RestorePosition(inherited);
+                else if (followSelection) ScrollToPage(focus);
                 RequestRender();
             }
         }
@@ -172,6 +189,20 @@ internal class PdfPageCanvas : ScrollableControl
     {
         var rectangle = bounds[index]; rectangle.Offset(AutoScrollPosition); return rectangle;
     }
+    internal PdfPageViewState? CapturePageView()
+    {
+        if (bounds.Count == 0) return null;
+        int page = Enumerable.Range(0, bounds.Count).MaxBy(i => Rectangle.Intersect(PageBounds(i), ClientRectangle).Height);
+        var rect = PageBounds(page);
+        return new(page, rect.Width, (ClientSize.Width / 2.0 - rect.Left) / rect.Width, (ClientSize.Height / 2.0 - rect.Top) / rect.Height);
+    }
+    internal void RestorePosition(PdfPageViewState state)
+    {
+        if (state.Page < 0 || state.Page >= bounds.Count) return;
+        var rect = bounds[state.Page];
+        AutoScrollPosition = new Point(Math.Max(0, (int)Math.Round(rect.Left + rect.Width * state.CenterX - ClientSize.Width / 2.0)),
+            Math.Max(0, (int)Math.Round(rect.Top + rect.Height * state.CenterY - ClientSize.Height / 2.0)));
+    }
     internal Point GapPoint(int index)
     {
         int y = index == 0 ? PageGap / 2 : bounds[index - 1].Bottom + PageGap / 2;
@@ -234,7 +265,7 @@ internal class PdfPageCanvas : ScrollableControl
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("拡大", null, (_, _) => SetZoom(zoom * 1.2f));
         menu.Items.Add("縮小", null, (_, _) => SetZoom(zoom / 1.2f));
-        menu.Items.Add("幅に合わせる", null, (_, _) => SetZoom(1));
+        menu.Items.Add("幅に合わせる", null, (_, _) => ChangeView(PdfViewCommand.FitWidth));
         return menu;
     }
     private void AddPaste(ContextMenuStrip menu, string text, int index)
@@ -329,12 +360,9 @@ internal class PdfPageCanvas : ScrollableControl
     }
     private void SetZoom(float value)
     {
-        int centerY = -AutoScrollPosition.Y + ClientSize.Height / 2;
-        int page = bounds.FindIndex(rect => rect.Bottom > centerY);
-        float fraction = page < 0 ? 0 : Math.Clamp((centerY - bounds[page].Top) / (float)bounds[page].Height, 0, 1);
+        var state = CapturePageView();
         zoom = Math.Clamp(value, .25f, 3f); LayoutPages();
-        if (page >= 0 && page < bounds.Count)
-            AutoScrollPosition = new Point(Math.Max(0, -AutoScrollPosition.X), Math.Max(0, (int)(bounds[page].Top + bounds[page].Height * fraction - ClientSize.Height / 2)));
+        if (state is not null) RestorePosition(state);
         RequestRender(); Invalidate();
     }
     private void ScrollToPage(int index)

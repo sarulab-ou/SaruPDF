@@ -179,6 +179,7 @@ internal static class Program
         foreach (var (name, run) in PageNavigationTests.Cases()) await Test(name, run);
         foreach (var (name, run) in PdfSearchTests.Cases(root)) await Test(name, run);
         await Test("rendered PDF changes pages with number + Enter and respects Escape", () => PageNavigationTests.VerifyRenderingAsync(root));
+        await Test("opening a PDF fits its page width to a wide window", () => PageNavigationTests.VerifyInitialFitWidthAsync(root));
         await Test("Ctrl+F searches and highlights PDF matches in all modes", () => PdfSearchTests.VerifyUiAsync(root));
         foreach (var (name, run) in PdfEditingTests.Cases(root)) await Test(name, run);
         await Test("direct page selection and gap context menu move multiple rendered pages", () => PdfEditingTests.VerifyEditorRenderingAsync(root));
@@ -191,6 +192,8 @@ internal static class Program
         await Test("rotation menu, context menu and shortcuts rotate selected pages visibly", () => PageOperationTests.VerifyRotationUiAsync(root));
         await Test("boundary import menu inserts all PDF pages into existing documents", () => PageOperationTests.VerifyBoundaryImportAsync(root));
         await Test("page-operation mode inherits actual PDF zoom and removes Ctrl+N", () => PageOperationTests.VerifyInheritedZoomAsync(root));
+        await Test("all modes preserve PDF zoom and horizontal and vertical position", () => PageOperationTests.VerifyAllModeViewStateAsync(root));
+        await Test("View menu fits width and one page and zooms in all modes", () => PageOperationTests.VerifyViewMenuAsync(root));
         await Test("arrow keys move pages and Shift extends, shrinks and reverses the selection", () => PageOperationTests.VerifyArrowSelectionAsync(root));
         await Test("page-operation mode sets and restores native title bar colors", () => PageOperationTests.VerifyTitleBarAsync(root));
         await Test("current page stays centered and has a different visual marker from selected pages", () => PageOperationTests.VerifyCurrentPageAsync(root));

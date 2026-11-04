@@ -106,6 +106,28 @@ internal static class PageNavigationTests
         return done.Task.WaitAsync(TimeSpan.FromSeconds(60));
     }
 
+    internal static Task VerifyInitialFitWidthAsync(string directory) => PdfEditingTests.OnSurfaceAsync(async host =>
+    {
+        string path = Path.Combine(directory, "initial-fit-width.pdf"); WriteColorPdf(path);
+        // A wide window distinguishes fit-to-width from the default 100% cap
+        // and fit-to-page, which leaves large margins around a portrait page.
+        host.ClientSize = new Size(1200, 650);
+        using var viewer = new PdfView(DocumentPath.Open(path), Path.Combine(directory, "fit-width-profile-" + Guid.NewGuid().ToString("N"))) { Dock = DockStyle.Fill };
+        host.Controls.Add(viewer); await viewer.LoadAsync();
+        var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
+        await ExpectColorAsync(web, Color.Red);
+        PdfPageViewState? state = null;
+        await PdfEditingTests.WaitUntilAsync(() => web.CoreWebView2 is not null);
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            state = await viewer.CapturePageViewAsync();
+            if (state is not null && state.Width > viewer.ClientSize.Width * .92 && state.Width <= viewer.ClientSize.Width * 1.02) break;
+            await Task.Delay(100);
+        }
+        Check(state is { Page: 0 } && state.Width > viewer.ClientSize.Width * .92 && state.Width <= viewer.ClientSize.Width * 1.02);
+        host.Controls.Remove(viewer);
+    });
+
     internal static async Task ExpectColorAsync(WebView2 web, Color expected)
     {
         var deadline = DateTime.UtcNow.AddSeconds(12);

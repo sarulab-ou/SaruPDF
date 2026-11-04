@@ -44,7 +44,7 @@ internal sealed class PdfCommentEditor : UserControl
             Viewer.InheritView(state);
             await Viewer.LoadAsync(snapshot);
             if (IsDisposed) return;
-            Viewer.SetTextMap(map); UpdateState();
+            Viewer.SetTextMap(map, followCaret: state is null); UpdateState();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { if (!IsDisposed) Failed?.Invoke(ex); }
     }

@@ -25,6 +25,9 @@ internal sealed class PdfView : UserControl
     private bool started;
     private bool ready;
     private string? findTerm;
+    private PdfPageViewState? pendingView;
+    private Task restoringView = Task.CompletedTask;
+    private ulong navigationId;
     public event Action<string>? OpenRequested;
     public event Action? OpenDialogRequested;
     public event Action? CloseRequested;
@@ -78,7 +81,13 @@ internal sealed class PdfView : UserControl
             {
                 if (IsDisposed) return;
                 ready = e.IsSuccess;
-                if (e.IsSuccess) { notice.Visible = false; runtimeLink.Visible = false; }
+                if (e.IsSuccess)
+                {
+                    notice.Visible = false; runtimeLink.Visible = false;
+                    navigationId = e.NavigationId;
+                    var state = pendingView; pendingView = null;
+                    restoringView = state is null ? Task.CompletedTask : RestorePageViewAsync(state, e.NavigationId);
+                }
                 else ShowFailure($"PDF を表示できませんでした（{e.WebErrorStatus}）。\nファイルが破損していないか、アクセス可能か確認してください。", false);
             };
             core.ProcessFailed += (_, e) => ShowFailure($"PDF Viewer が停止しました（{e.ProcessFailedKind}）。\nこのウィンドウを閉じて、PDF を開き直してください。", false);
@@ -114,7 +123,7 @@ internal sealed class PdfView : UserControl
                     else CloseRequested?.Invoke();
                 });
             };
-            var uri = new UriBuilder(document.Uri) { Fragment = $"toolbar=0&page={initialPage}" }.Uri;
+            var uri = new UriBuilder(document.Uri) { Fragment = $"toolbar=0&page={initialPage}&view=FitH" }.Uri;
             core.Navigate(uri.AbsoluteUri);
         }
         catch (Exception ex) when (IsDisposed || Disposing) { _ = ex; }
@@ -203,11 +212,26 @@ internal sealed class PdfView : UserControl
         catch (Exception ex) when (ex is InvalidCastException or NotImplementedException or COMException) { }
     }
 
+    internal async Task ChangeViewAsync(PdfViewCommand command)
+    {
+        await restoringView;
+        if (!ready || web.CoreWebView2 is null) return;
+        string method = command switch
+        {
+            PdfViewCommand.FitWidth => "fitToWidth", PdfViewCommand.FitPage => "fitToPage",
+            PdfViewCommand.ZoomIn => "zoomIn", _ => "zoomOut"
+        };
+        await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, $$"""
+            (() => { const v = window.viewer?.viewport_; if (!v?.documentDimensions_) return false; v.{{method}}(); return true; })()
+            """);
+    }
+
     internal async Task<PdfPageViewState?> CapturePageViewAsync()
     {
-        if (!ready || web.CoreWebView2 is null) return null;
+        if (!ready || web.CoreWebView2 is null) return pendingView;
         try
         {
+            await restoringView.WaitAsync(TimeSpan.FromSeconds(3));
             return await ReadPageViewAsync().WaitAsync(TimeSpan.FromSeconds(2));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
@@ -223,18 +247,54 @@ internal sealed class PdfView : UserControl
                     if (!v || !v.documentDimensions_) return null;
                     const page = v.getMostVisiblePage();
                     const rect = v.getPageScreenRect(page);
-                    return {page, width: rect.width * devicePixelRatio};
+                    return {page, width: rect.width * devicePixelRatio,
+                        centerX: (v.size.width / 2 - rect.x) / rect.width,
+                        centerY: (v.size.height / 2 - rect.y) / rect.height};
                 })()
                 """);
             if (result is { ValueKind: System.Text.Json.JsonValueKind.Object } value)
             {
                 int page = value.GetProperty("page").GetInt32();
                 double width = value.GetProperty("width").GetDouble();
-                if (page >= 0 && double.IsFinite(width) && width > 0) return new(page, width);
+                if (page >= 0 && double.IsFinite(width) && width > 0)
+                    return new(page, width, value.GetProperty("centerX").GetDouble(), value.GetProperty("centerY").GetDouble());
             }
             await Task.Delay(100);
         }
         return null;
+    }
+
+    private async Task RestorePageViewAsync(PdfPageViewState state, ulong navigation)
+    {
+        try
+        {
+            string data = System.Text.Json.JsonSerializer.Serialize(state);
+            bool zoomed = false;
+            for (int attempt = 0; attempt < 25 && !IsDisposed && navigationId == navigation; attempt++)
+            {
+                var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, $$"""
+                    (() => {
+                        const s = {{data}}, v = window.viewer?.viewport_;
+                        if (!v?.documentDimensions_) return null;
+                        let r = v.getPageScreenRect(s.Page);
+                        if (!r || r.width <= 0) return null;
+                        if ({{(zoomed ? "false" : "true")}}) {
+                            v.setZoom(v.getZoom() * s.Width / devicePixelRatio / r.width);
+                            return false;
+                        }
+                        r = v.getPageScreenRect(s.Page);
+                        v.scrollTo({x: v.position.x + r.x + r.width * s.CenterX - v.size.width / 2,
+                            y: v.position.y + r.y + r.height * s.CenterY - v.size.height / 2});
+                        return true;
+                    })()
+                    """);
+                if (result is { ValueKind: System.Text.Json.JsonValueKind.True }) return;
+                // Apply zoom only after the PDF renderer has its page geometry.
+                if (result is { ValueKind: System.Text.Json.JsonValueKind.False }) zoomed = true;
+                await Task.Delay(100);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { }
     }
 
     private void UpdatePageHint(string? error = null)
@@ -254,10 +314,12 @@ internal sealed class PdfView : UserControl
         NavigateDocument(document, page);
     }
 
-    internal void NavigateDocument(PdfDocument targetDocument, int page = 1)
+    internal void NavigateDocument(PdfDocument targetDocument, int page = 1, PdfPageViewState? state = null)
     {
         if (IsDisposed || Disposing) return;
         document = targetDocument;
+        pendingView = state;
+        navigationId = 0;
         findTerm = null;
         initialPage = page;
         CancelPageInput();

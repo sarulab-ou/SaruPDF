@@ -86,6 +86,32 @@ internal sealed class PdfWindow : Form
         undoEdit.Click += (_, _) => { if (commentEditor is not null) commentEditor.Undo(); else editor?.Undo(); };
         redoEdit.Click += (_, _) => { if (commentEditor is not null) commentEditor.Redo(); else editor?.Redo(); };
         menu.Items.Add(edit);
+        var display = new ToolStripMenuItem("表示(&V)") { Name = "ViewMenu" };
+        foreach (var (text, name, command) in new[]
+        {
+            ("ページ幅を基準に表示(&W)", "FitWidth", PdfViewCommand.FitWidth),
+            ("1ページ(&P)", "FitPage", PdfViewCommand.FitPage),
+            ("ズームイン(&I)", "ZoomIn", PdfViewCommand.ZoomIn),
+            ("ズームアウト(&O)", "ZoomOut", PdfViewCommand.ZoomOut)
+        })
+        {
+            var item = new ToolStripMenuItem(text) { Name = name };
+            item.Click += async (_, _) =>
+            {
+                try
+                {
+                    if (SearchCanvas is { } canvas) canvas.ChangeView(command);
+                    else if (ActiveViewer is { } active) await active.ChangeViewAsync(command);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { ShowError("表示を変更できませんでした。\n" + ex.Message); }
+            };
+            display.DropDownItems.Add(item);
+        }
+        display.DropDownOpening += (_, _) =>
+        {
+            foreach (ToolStripItem item in display.DropDownItems) item.Enabled = document is not null;
+        };
+        menu.Items.Add(display);
         MainMenuStrip = menu;
 
         var dismiss = new Button { Text = "閉じる", Dock = DockStyle.Right, Width = 76, AccessibleName = "エラー表示を閉じる" };
@@ -183,6 +209,7 @@ internal sealed class PdfWindow : Form
         // Loading while hidden can leave WinForms' scroll range at an earlier
         // partial page layout. Recalculate it after the surface becomes visible.
         target.Viewer.PerformLayout();
+        if (state is not null) target.Viewer.RestorePosition(state);
     }
 
     private void SelectImportPdfs(int index)
@@ -318,15 +345,17 @@ internal sealed class PdfWindow : Form
     internal void ToggleEditMode()
     {
         if (document is null || viewer is null) return;
-        if (commentEditor is not null) { ToggleCommentMode(); if (commentEditor is not null) return; }
+        PdfPageViewState? inherited = null;
+        if (commentEditor is not null) { inherited = commentEditor.Viewer.CapturePageView(); ToggleCommentMode(); if (commentEditor is not null) return; }
         if (editor is not null)
         {
             if (!ConfirmFinishEditing()) return;
+            var state = editor.Viewer.CapturePageView();
             ResetSearch();
             content.Controls.Remove(editor);
             editor.Dispose(); editor = null;
             viewer.Visible = true;
-            viewer.NavigateDocument(document);
+            viewer.NavigateDocument(document, (state?.Page ?? 0) + 1, state);
             _ = viewer.LoadAsync();
             UpdateEditMenus();
             return;
@@ -338,7 +367,7 @@ internal sealed class PdfWindow : Form
             ResetSearch();
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
-            AttachEditor(session, viewer.CapturePageViewAsync());
+            AttachEditor(session, inherited is null ? viewer.CapturePageViewAsync() : Task.FromResult<PdfPageViewState?>(inherited));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -354,13 +383,15 @@ internal sealed class PdfWindow : Form
     internal void ToggleCommentMode()
     {
         if (document is null || viewer is null) return;
-        if (editor is not null) { ToggleEditMode(); if (editor is not null) return; }
+        PdfPageViewState? inherited = null;
+        if (editor is not null) { inherited = editor.Viewer.CapturePageView(); ToggleEditMode(); if (editor is not null) return; }
         if (commentEditor is not null)
         {
             if (!ConfirmFinishEditing()) return;
+            var state = commentEditor.Viewer.CapturePageView();
             ResetSearch();
             content.Controls.Remove(commentEditor); commentEditor.Dispose(); commentEditor = null;
-            viewer.Visible = true; viewer.NavigateDocument(document); _ = viewer.LoadAsync();
+            viewer.Visible = true; viewer.NavigateDocument(document, (state?.Page ?? 0) + 1, state); _ = viewer.LoadAsync();
             UpdateEditMenus(); return;
         }
         PdfEditSession? session = null;
@@ -373,7 +404,7 @@ internal sealed class PdfWindow : Form
             commentEditor.StateChanged += UpdateEditMenus;
             commentEditor.Failed += ex => ShowError("コメントを処理できませんでした。\n" + ex.Message);
             content.Controls.Add(commentEditor); UpdateEditMenus();
-            _ = LoadCommentEditorAsync(commentEditor, viewer.CapturePageViewAsync());
+            _ = LoadCommentEditorAsync(commentEditor, inherited is null ? viewer.CapturePageViewAsync() : Task.FromResult<PdfPageViewState?>(inherited));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -391,6 +422,7 @@ internal sealed class PdfWindow : Form
         if (IsDisposed || target.IsDisposed || !ReferenceEquals(commentEditor, target)) return;
         if (viewer is not null) viewer.Visible = false;
         target.Visible = true; target.BringToFront(); target.Viewer.PerformLayout(); target.Viewer.Focus();
+        if (state is not null) target.Viewer.RestorePosition(state);
     }
 
     private void UpdateEditMenus()

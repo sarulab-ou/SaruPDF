@@ -39,7 +39,7 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
             Invalidate();
         };
     }
-    internal void SetTextMap(PdfTextMap map)
+    internal void SetTextMap(PdfTextMap map, bool followCaret = true)
     {
         selection = new PdfCaretSelection(map);
         if (CurrentPage > 0)
@@ -47,7 +47,8 @@ internal sealed class PdfCommentCanvas : PdfPageCanvas
             int first = map.Glyphs.FindIndex(g => g.Page >= CurrentPage);
             if (first >= 0) selection.Set(first, false);
         }
-        FollowCaret(); Invalidate();
+        if (followCaret) FollowCaret();
+        Invalidate();
     }
     internal void UpdateComments(IReadOnlyList<PdfCommentMark> comments)
     {

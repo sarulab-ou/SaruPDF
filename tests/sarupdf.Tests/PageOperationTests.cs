@@ -219,6 +219,98 @@ internal static class PageOperationTests
         }
     });
 
+    internal static Task VerifyAllModeViewStateAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string path = Path.Combine(root, "all-mode-view-state.pdf"); PageNavigationTests.WriteColorPdf(path);
+        using var window = new PdfWindow(Path.Combine(root, "mode-state-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(path)); window.Show();
+        var view = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!;
+        await WaitUntilAsync(() => web.CoreWebView2 is not null);
+        await PageNavigationTests.ExpectColorAsync(web, Color.Red);
+        await Task.Delay(500);
+        await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, "window.viewer.viewport_.setZoom(1.8)");
+        await Task.Delay(200);
+        await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, "(()=>{const v=window.viewer.viewport_,r=v.getPageScreenRect(3);v.scrollTo({x:v.position.x+r.x+r.width*.63-v.size.width/2,y:v.position.y+r.y+r.height*.35-v.size.height/2});return true})()");
+        await Task.Delay(200);
+        var expected = await view.CapturePageViewAsync(); Check(expected is { Page: 3 });
+        void Same(PdfPageViewState? actual)
+        {
+            if (actual is null || actual.Page != expected!.Page || Math.Abs(actual.Width - expected.Width) > 3 ||
+                Math.Abs(actual.CenterX - expected.CenterX) * expected.Width > 5 || Math.Abs(actual.CenterY - expected.CenterY) * expected.Width > 5)
+                throw new Exception($"Mode viewport changed: expected {expected}, actual {actual}");
+        }
+        async Task CheckView()
+        {
+            await WaitUntilAsync(() => (bool)typeof(PdfView).GetField("ready", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
+            Same(await view.CapturePageViewAsync());
+        }
+        async Task<PdfCommentCanvas> CheckComment()
+        {
+            var comment = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            await WaitUntilAsync(() => comment.Visible && comment.Viewer.Selection is not null);
+            Same(comment.Viewer.CapturePageView()); return comment.Viewer;
+        }
+        async Task CheckPage()
+        {
+            var canvas = Editor(window).Viewer;
+            await WaitUntilAsync(() => canvas.Visible && canvas.IsPageRendered(expected!.Page)); Same(canvas.CapturePageView());
+        }
+        window.ToggleEditMode(); await CheckPage();
+        var pageCanvas = Editor(window).Viewer;
+        pageCanvas.TryHandleZoomKey(Keys.Control | Keys.Add); pageCanvas.CenterPointOnPage(5, .7f);
+        expected = pageCanvas.CapturePageView();
+        window.ToggleCommentMode(); var commentCanvas = await CheckComment();
+        commentCanvas.TryHandleZoomKey(Keys.Control | Keys.Subtract); commentCanvas.CenterPointOnPage(6, .4f);
+        expected = commentCanvas.CapturePageView();
+        window.ToggleCommentMode(); await CheckView();
+        window.ToggleCommentMode(); await CheckComment();
+        window.ToggleEditMode(); await CheckPage();
+        window.ToggleEditMode(); await CheckView();
+        host.Controls.Remove(window);
+    });
+
+    internal static Task VerifyViewMenuAsync(string root) => OnSurfaceAsync(async host =>
+    {
+        string path = Path.Combine(root, "view-menu.pdf"); PageNavigationTests.WriteColorPdf(path);
+        using var window = new PdfWindow(Path.Combine(root, "view-menu-profile-" + Guid.NewGuid().ToString("N"))) { TopLevel = false, Dock = DockStyle.Fill };
+        host.Controls.Add(window); window.SetDocument(DocumentPath.Open(path)); window.Show();
+        var viewer = (PdfView)typeof(PdfWindow).GetField("viewer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var web = (WebView2)typeof(PdfView).GetField("web", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewer)!;
+        await WaitUntilAsync(() => web.CoreWebView2 is not null); await PageNavigationTests.ExpectColorAsync(web, Color.Red);
+        var menu = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(m => m.Name == "ViewMenu");
+        Check(menu.Text == "表示(&V)" && menu.DropDownItems.Count == 4);
+        PdfPageCanvas? canvas = null;
+        async Task<PdfPageViewState> Apply(string name, Func<PdfPageViewState, bool> matches)
+        {
+            menu.DropDownItems.OfType<ToolStripMenuItem>().Single(m => m.Name == name).PerformClick();
+            for (int i = 0; i < 40; i++)
+            {
+                await Task.Delay(100);
+                var state = canvas?.CapturePageView() ?? await viewer.CapturePageViewAsync();
+                if (state is not null && matches(state)) return state;
+            }
+            throw new Exception("View menu did not apply: " + name);
+        }
+        for (int mode = 0; mode < 3; mode++)
+        {
+            if (mode == 1) { window.ToggleEditMode(); canvas = Editor(window).Viewer; await WaitUntilAsync(() => canvas.Visible && canvas.IsPageRendered(0)); }
+            if (mode == 2)
+            {
+                window.ToggleCommentMode();
+                var comment = (PdfCommentEditor)typeof(PdfWindow).GetField("commentEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+                canvas = comment.Viewer; await WaitUntilAsync(() => comment.Visible && comment.Viewer.Selection is not null);
+            }
+            int available = canvas?.ClientSize.Width ?? viewer.ClientSize.Width;
+            var fit = await Apply("FitWidth", s => s.Width > available * .9 && s.Width <= available);
+            var bigger = await Apply("ZoomIn", s => s.Width > fit.Width * 1.05);
+            await Apply("ZoomOut", s => s.Width < bigger.Width * .95);
+            int height = canvas?.ClientSize.Height ?? viewer.ClientSize.Height;
+            await Apply("FitPage", s => s.Width < fit.Width && s.Width * 842 / 595 <= height + 4);
+        }
+        host.Controls.Remove(window);
+    });
+
     internal static Task VerifyArrowSelectionAsync(string root) => OnSurfaceAsync(async host =>
     {
         string path = Path.Combine(root, "arrow-selection.pdf"); PageNavigationTests.WriteColorPdf(path);

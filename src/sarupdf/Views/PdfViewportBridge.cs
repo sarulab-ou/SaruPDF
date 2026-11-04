@@ -3,7 +3,8 @@ using Microsoft.Web.WebView2.Core;
 
 namespace SaruPdf.Views;
 
-internal sealed record PdfPageViewState(int Page, double Width);
+internal sealed record PdfPageViewState(int Page, double Width, double CenterX = .5, double CenterY = .5);
+internal enum PdfViewCommand { FitWidth, FitPage, ZoomIn, ZoomOut }
 
 // PDF zoom belongs to the PDF renderer, independently of WebView2.ZoomFactor.
 // Scope the renderer session to this WebView's target, even with several PDFs open.
