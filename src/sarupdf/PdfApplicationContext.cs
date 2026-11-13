@@ -15,6 +15,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer exitTimer = new() { Interval = 200 };
     private bool stopping;
     private PdfUpdateDialog? updateDialog;
+    private bool preparingUpdate;
 
     public PdfApplicationContext()
     {
@@ -104,29 +105,38 @@ internal sealed class PdfApplicationContext : ApplicationContext
         return window;
     }
 
-    private void ShowUpdateDialog(PdfWindow owner)
+    private async void ShowUpdateDialog(PdfWindow owner)
     {
         if (updateDialog is not null) { updateDialog.Activate(); return; }
-        string? installer;
+        if (preparingUpdate) return;
+        string? package;
+        Version? version;
         try
         {
             using var dialog = new PdfUpdateDialog(); updateDialog = dialog;
             if (dialog.ShowDialog(owner) != DialogResult.OK) return;
-            installer = dialog.InstallerPath;
+            package = dialog.PackagePath;
+            version = dialog.PackageVersion;
         }
         finally { updateDialog = null; }
-        if (installer is null) return;
+        if (package is null) return;
         try
         {
+            preparingUpdate = true;
+            owner.UseWaitCursor = true;
+            var update = await Task.Run(() => UpdatePackage.Prepare(package));
+            if (stopping || owner.IsDisposed) return;
+            if (update.Manifest.Version != version?.ToString()) throw new InvalidDataException("ZIP内のバージョン情報が一致しません。");
             var windows = catalog.Windows.ToArray();
             // Confirm every document before closing any window. Cancelling a
             // later prompt leaves all documents open and never starts setup.
             foreach (var window in windows) if (!window.PrepareForUpdate()) return;
-            UpdateLauncher.Start(installer);
+            UpdateLauncher.Start(update, windows.Select(w => w.OpenDocumentPath).OfType<string>().ToArray());
             stopping = true;
             foreach (var window in windows) window.CloseForUpdate();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { owner.ShowError("更新を開始できませんでした。\n" + ex.Message); }
+        finally { preparingUpdate = false; if (!owner.IsDisposed) owner.UseWaitCursor = false; }
     }
 
     public void ReportPipeFailure(Exception error)

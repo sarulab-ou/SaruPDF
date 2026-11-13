@@ -52,4 +52,5 @@ try {
         $hash.Hash.ToLowerInvariant() + '  ' + $_
     }
     [System.IO.File]::WriteAllLines((Join-Path $output "SaruPDF-$version-SHA256SUMS.txt"), $checksums, [System.Text.UTF8Encoding]::new($false))
+    & "$PSScriptRoot/Build-UpdatePackage.ps1" -OutputRoot $OutputRoot -SkipPublish
 } finally { Pop-Location }

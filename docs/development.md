@@ -107,9 +107,11 @@ Windows 11では `NativeWindows.SetPageOperationTitleBar` がDWMの `DWMWA_CAPTI
 
 ## アプリの更新
 
-`Updates/GitHubUpdater.cs` は[GitHub Releases API](https://docs.github.com/en/rest/releases/releases)の `releases/latest` を使い、公開正式版と現在の3桁バージョンを比較します。対象は `sarulab-ou/SaruPDF` のx64インストーラーとSHA-256一覧のみです。サイズとSHA-256、API側のdigestがある場合はその一致も確認します。ダウンロード先は `%LOCALAPPDATA%/SaruPDF/Updates/<GUID>/`、失敗・中止時は作成したファイルだけを削除します。
+`Updates/GitHubUpdater.cs` は[GitHub Releases API](https://docs.github.com/en/rest/releases/releases)の `releases/latest` を使い、公開正式版と現在の3桁バージョンを比較します。対象は `sarulab-ou/SaruPDF` の `Update-x64.zip` と専用の `Update-SHA256SUMS.txt` です。サイズとSHA-256、API側のdigestがある場合はその一致も確認します。ダウンロード先は `%LOCALAPPDATA%/SaruPDF/Updates/<GUID>/`、失敗・中止時は作成したファイルだけを削除します。
 
-`PdfUpdateDialog` からダウンロードが完了した後、`PdfApplicationContext` が全ウィンドウの保存確認を先に行います。取り消し時は起動・終了せず、開始時は `UpdateLauncher` がWindows PowerShellの別プロセスで本体の終了を待ち、対話形式のNSISインストーラーを起動します。インストール先は実行場所の製品マーカー、登録済みの製品マーカー、既定先の順に選択します。PDF候補登録は `/NoAssociation` で既定で選択解除します。バックグラウンドでの定期確認はありません。
+`UpdatePackage` はZIP内のファイル一覧と全ファイルのハッシュを検証し、相対パス逸脱やリンクを拒否します。`PdfApplicationContext` が全ウィンドウの保存確認を済ませた後、`UpdateLauncher` がWindows PowerShellの別プロセスで本体の終了を待ちます。実行中のアプリの配置先へファイルを置き換え、開いていた文書を引数にして再起動します。元のファイルは配置先と同じドライブの専用フォルダーへ一時退避し、途中で失敗した場合は復旧します。パッケージにないユーザーファイルや既存のアンインストーラーを削除しません。
+
+`Build-UpdatePackage.ps1` がpublish出力からZIPと専用チェックサムを生成します。`Build-Installer.ps1` と `Publish-GitHubRelease.ps1` も更新専用ZIPを含む4ファイルに対応しています。従来版の更新クライアントとの互換性のため、インストーラー用チェックサムは従来どおり1行に保ち、ZIP用チェックサムを別ファイルにします。
 
 ## コメントモード
 
@@ -135,7 +137,7 @@ Viewモードの検索はWebView2のFind APIを使用し、一致箇所の色付
 
 ## 確認
 
-`scripts/Test.ps1`: **101件**。既存のPDF編集・コピー試験に、複数PDFのインポート、拡大縮小、通常表示からの倍率引き継ぎ、モード名とCtrl+N削除の検査を含みます。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
+`scripts/Test.ps1`: **103件**。既存のPDF編集・コピー試験に、複数PDFのインポート、拡大縮小、通常表示からの倍率引き継ぎ、モード名とCtrl+N削除の検査を含みます。原本PDFは再現可能に生成します。保存後のページ数・内容順・回転・基本注釈・しおり参照、失敗時の元ファイル保持、外部変更検出、署名欄・暗号化の拒否、文書管理の保存先変更を検査します。描画試験は画面外の非アクティブなフォームと専用ブラウザープロファイルを使い、閲覧時はWebView2、編集時はWindows標準PDF描画とWinFormsの画素を確認します。レジストリ試験は `HKCU\Software\SaruPDF.Tests\<ランダム GUID>` 以下だけを使い、終了後に削除します。実際のPDF関連付けは変更しません。WebView2 Runtimeと通常ユーザー権限でのテスト用レジストリ書き込みが必要です。
 
 `scripts/Test-Installer.ps1` は生成したセットアップを作業フォルダー内の専用ディレクトリにサイレント導入・更新・削除し、候補登録や既定設定・ユーザーファイル保持を検証します。**これは現在のユーザーに一時的な SaruPDF 登録とスタートメニューを作る試験です。** 既存の SaruPDF 登録がある場合は上書きせず停止します。結果は検証記録を参照してください。
 

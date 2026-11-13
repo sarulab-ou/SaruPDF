@@ -176,6 +176,7 @@ internal static class Program
 
         foreach (var (name, run) in AssociationTests.Cases()) await Test(name, run);
         foreach (var (name, run) in UpdateTests.Cases(root)) await Test(name, run);
+        foreach (var (name, run) in UpdatePackageTests.Cases(root)) await Test(name, run);
         await Test("Help update menu downloads verified setup and shows current-version status", () => UpdateTests.VerifyUiAsync(root));
         foreach (var (name, run) in UiRegressionTests.Cases(a)) await Test(name, run);
         foreach (var (name, run) in PageNavigationTests.Cases()) await Test(name, run);

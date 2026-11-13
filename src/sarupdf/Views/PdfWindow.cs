@@ -48,6 +48,7 @@ internal sealed class PdfWindow : Form
 
     public event Action<string[]>? OpenRequested;
     internal event Action? UpdateRequested;
+    internal string? OpenDocumentPath => document?.Path;
     public event Action<PdfDocument>? DocumentPathChanged;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal Func<string, bool>? CanUseDocumentPath { get; set; }
@@ -115,6 +116,10 @@ internal sealed class PdfWindow : Form
         };
         menu.Items.Add(display);
         var help = new ToolStripMenuItem("ヘルプ(&H)") { Name = "HelpMenu" };
+        help.DropDownItems.Add(new ToolStripMenuItem("バージョン情報(&A)…", null, (_, _) =>
+        {
+            using var dialog = new PdfAboutDialog(); dialog.ShowDialog(this);
+        }) { Name = "AboutApplication" });
         help.DropDownItems.Add(new ToolStripMenuItem("更新(&U)…", null, (_, _) => UpdateRequested?.Invoke()) { Name = "UpdateApplication" });
         menu.Items.Add(help);
         MainMenuStrip = menu;

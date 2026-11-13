@@ -269,7 +269,7 @@ internal sealed class PdfView : UserControl
         try
         {
             string data = System.Text.Json.JsonSerializer.Serialize(state);
-            bool zoomed = false;
+            int stable = 0;
             for (int attempt = 0; attempt < 25 && !IsDisposed && navigationId == navigation; attempt++)
             {
                 var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, $$"""
@@ -278,7 +278,7 @@ internal sealed class PdfView : UserControl
                         if (!v?.documentDimensions_) return null;
                         let r = v.getPageScreenRect(s.Page);
                         if (!r || r.width <= 0) return null;
-                        if ({{(zoomed ? "false" : "true")}}) {
+                        if (Math.abs(r.width * devicePixelRatio - s.Width) > 2) {
                             v.setZoom(v.getZoom() * s.Width / devicePixelRatio / r.width);
                             return false;
                         }
@@ -288,9 +288,10 @@ internal sealed class PdfView : UserControl
                         return true;
                     })()
                     """);
-                if (result is { ValueKind: System.Text.Json.JsonValueKind.True }) return;
-                // Apply zoom only after the PDF renderer has its page geometry.
-                if (result is { ValueKind: System.Text.Json.JsonValueKind.False }) zoomed = true;
+                // Initial PDF parameters can reset zoom after NavigationCompleted.
+                // Confirm it remains applied across several renderer updates.
+                stable = result is { ValueKind: System.Text.Json.JsonValueKind.True } ? stable + 1 : 0;
+                if (stable >= 3) return;
                 await Task.Delay(100);
             }
         }

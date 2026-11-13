@@ -11,13 +11,14 @@ function ConvertTo-WslPath([string]$Value) {
 $version = $project.Project.PropertyGroup.Version
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
 $output = [System.IO.Path]::GetFullPath($OutputRoot, $ProjectRoot)
-$assets = @("SaruPDF-$version-Setup-x64.exe", "SaruPDF-$version-SHA256SUMS.txt")
+$assets = @("SaruPDF-$version-Setup-x64.exe", "SaruPDF-$version-SHA256SUMS.txt", "SaruPDF-$version-Update-x64.zip", "SaruPDF-$version-Update-SHA256SUMS.txt")
 foreach ($asset in $assets) { if (!(Test-Path -LiteralPath (Join-Path $output $asset))) { throw "Missing release asset: $asset" } }
-$checksumLines = @(Get-Content (Join-Path $output "SaruPDF-$version-SHA256SUMS.txt"))
-if ($checksumLines.Count -ne 1) { throw 'Checksum manifest must contain only the installer.' }
-foreach ($line in $checksumLines) {
+foreach ($pair in @(@($assets[1], $assets[0]), @($assets[3], $assets[2]))) {
+    $checksumLines = @(Get-Content (Join-Path $output $pair[0]))
+    if ($checksumLines.Count -ne 1) { throw 'Each checksum manifest must contain exactly one asset.' }
+    $line = $checksumLines[0]
     if ($line -notmatch '^([a-f0-9]{64})  (SaruPDF-[^/\\]+)$') { throw 'Invalid checksum manifest.' }
-    if ($Matches[2] -ne $assets[0]) { throw 'Unexpected checksum asset.' }
+    if ($Matches[2] -ne $pair[1]) { throw 'Unexpected checksum asset.' }
     if ((Get-FileHash -LiteralPath (Join-Path $output $Matches[2]) -Algorithm SHA256).Hash -ne $Matches[1]) { throw 'Release checksum mismatch.' }
 }
 $notes = Join-Path $ProjectRoot "docs/releases/v$version.md"

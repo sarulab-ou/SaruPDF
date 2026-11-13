@@ -13,7 +13,8 @@ internal sealed class PdfUpdateDialog : Form
     private readonly Button download = new() { Name = "DownloadUpdate", Text = "ダウンロードして更新", AutoSize = true, Enabled = false };
     private UpdateRelease? release;
     private bool resourcesDisposed;
-    internal string? InstallerPath { get; private set; }
+    internal string? PackagePath { get; private set; }
+    internal Version? PackageVersion => release?.Version;
 
     internal PdfUpdateDialog(GitHubUpdater? updater = null, Version? current = null, string? downloadRoot = null)
     {
@@ -40,7 +41,7 @@ internal sealed class PdfUpdateDialog : Form
             if (IsDisposed) return;
             progress.Style = ProgressBarStyle.Continuous;
             status.Text = release is null ? $"現在のバージョン: {current}\n最新版を使用しています。" :
-                $"現在のバージョン: {current}　最新: {release.Version}\n\n更新時にすべてのPDFウィンドウを閉じ、インストーラーを起動します。未保存の変更は終了前に確認します。";
+                $"現在のバージョン: {current}　最新: {release.Version}\n\n更新ファイルを取得し、SaruPDFを終了してファイルを置き換え、再起動します。未保存の変更は終了前に確認します。";
             download.Enabled = release is not null;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { Failure(ex); }
@@ -53,7 +54,7 @@ internal sealed class PdfUpdateDialog : Form
         try
         {
             var report = new Progress<int>(value => { if (!IsDisposed) progress.Value = Math.Clamp(value, 0, 100); });
-            InstallerPath = await updater.DownloadAsync(release, downloadRoot, report, cancellation.Token);
+            PackagePath = await updater.DownloadAsync(release, downloadRoot, report, cancellation.Token);
             if (IsDisposed) return;
             DialogResult = DialogResult.OK; Close();
         }

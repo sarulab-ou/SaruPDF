@@ -20,10 +20,10 @@ internal static class UpdateTests
         string version = tag.TrimStart('v');
         return JsonSerializer.Serialize(new { tag_name = tag, draft = false, prerelease, assets = new[]
         {
-            new { name = $"SaruPDF-{version}-Setup-x64.exe", state = "uploaded", size = Installer.Length, digest = "sha256:" + Hash,
-                browser_download_url = $"https://{downloadHost ?? "github.com"}/sarulab-ou/SaruPDF/releases/download/{tag}/SaruPDF-{version}-Setup-x64.exe" },
-            new { name = $"SaruPDF-{version}-SHA256SUMS.txt", state = "uploaded", size = 100, digest = "",
-                browser_download_url = $"https://github.com/sarulab-ou/SaruPDF/releases/download/{tag}/SaruPDF-{version}-SHA256SUMS.txt" }
+            new { name = $"SaruPDF-{version}-Update-x64.zip", state = "uploaded", size = Installer.Length, digest = "sha256:" + Hash,
+                browser_download_url = $"https://{downloadHost ?? "github.com"}/sarulab-ou/SaruPDF/releases/download/{tag}/SaruPDF-{version}-Update-x64.zip" },
+            new { name = $"SaruPDF-{version}-Update-SHA256SUMS.txt", state = "uploaded", size = 100, digest = "",
+                browser_download_url = $"https://github.com/sarulab-ou/SaruPDF/releases/download/{tag}/SaruPDF-{version}-Update-SHA256SUMS.txt" }
         } });
     }
     private sealed class Handler(string metadata, bool corrupt = false, bool fail = false) : HttpMessageHandler
@@ -34,7 +34,7 @@ internal static class UpdateTests
             var response = new HttpResponseMessage(fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK) { RequestMessage = request };
             string path = request.RequestUri!.AbsolutePath;
             response.Content = path.EndsWith("latest", StringComparison.Ordinal) ? new StringContent(metadata) : path.EndsWith(".txt", StringComparison.Ordinal)
-                ? new StringContent(Hash + "  SaruPDF-9.0.0-Setup-x64.exe\n") : new ByteArrayContent(corrupt ? Enumerable.Repeat((byte)0, Installer.Length).ToArray() : Installer);
+                ? new StringContent(Hash + "  SaruPDF-9.0.0-Update-x64.zip\n") : new ByteArrayContent(corrupt ? Enumerable.Repeat((byte)0, Installer.Length).ToArray() : Installer);
             return Task.FromResult(response);
         }
     }
@@ -49,7 +49,7 @@ internal static class UpdateTests
         });
         yield return ("update rejects prerelease versions and foreign installer URLs", async () =>
         {
-            foreach (string data in new[] { Metadata(prerelease: true), Metadata(downloadHost: "example.com"), Metadata("v9.0.0-preview"), Metadata().Replace("-Setup-x64.exe", "-portable.zip", StringComparison.Ordinal) })
+            foreach (string data in new[] { Metadata(prerelease: true), Metadata(downloadHost: "example.com"), Metadata("v9.0.0-preview"), Metadata().Replace("-Update-x64.zip", "-portable.zip", StringComparison.Ordinal) })
             {
                 using var updater = new GitHubUpdater(new Handler(data));
                 await ThrowsAsync<InvalidDataException>(() => updater.CheckAsync(new Version(1, 0, 0), default));
@@ -80,29 +80,6 @@ internal static class UpdateTests
             using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
             await ThrowsAsync<OperationCanceledException>(() => updater.CheckAsync(new Version(1, 0, 0), cancelled.Token));
         });
-        yield return ("update launcher waits outside the payload and quotes Japanese and special paths", () =>
-        {
-            var start = UpdateLauncher.StartInfo(@"C:\更新テスト\it's # & test\setup.exe", @"C:\アプリ\SaruPDF", 123);
-            string script = Encoding.Unicode.GetString(Convert.FromBase64String(start.ArgumentList[^1]));
-            Check(!start.UseShellExecute && start.CreateNoWindow && script.Contains("WaitForExit(120000)", StringComparison.Ordinal));
-            Check(script.Contains("it''s # & test", StringComparison.Ordinal) && script.Contains("/NoAssociation /D=C:\\アプリ\\SaruPDF", StringComparison.Ordinal));
-            return Task.CompletedTask;
-        });
-        yield return ("update helper waits for the application before launching a harmless fixture", async () =>
-        {
-            string folder = Path.GetFullPath(Path.Combine(root, "update-launch-" + Guid.NewGuid().ToString("N"))); Directory.CreateDirectory(folder);
-            string marker = Path.Combine(folder, "started.txt"), fixture = Path.Combine(folder, "setup.cmd");
-            await File.WriteAllTextAsync(fixture, "@echo off\r\n>\"" + marker + "\" echo started\r\n");
-            var workerStart = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe")) { UseShellExecute = false, CreateNoWindow = true };
-            workerStart.ArgumentList.Add("-NoProfile"); workerStart.ArgumentList.Add("-Command"); workerStart.ArgumentList.Add("Start-Sleep -Seconds 3");
-            using var worker = Process.Start(workerStart)!;
-            using var helper = Process.Start(UpdateLauncher.StartInfo(fixture, folder, worker.Id))!;
-            await Task.Delay(200); Check(!File.Exists(marker));
-            await worker.WaitForExitAsync();
-            await helper.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
-            for (int i = 0; i < 50 && !File.Exists(marker); i++) await Task.Delay(100);
-            Check(helper.ExitCode == 0 && File.Exists(marker));
-        });
     }
 
     internal static Task VerifyUiAsync(string root) => OnSurfaceAsync(async host =>
@@ -110,14 +87,28 @@ internal static class UpdateTests
         using var window = new PdfWindow { TopLevel = false }; host.Controls.Add(window); window.Show();
         bool requested = false; window.UpdateRequested += () => requested = true;
         var help = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(i => i.Name == "HelpMenu");
+        bool versionShown = false;
+        using (var closeAbout = new System.Windows.Forms.Timer { Interval = 50 })
+        {
+            closeAbout.Tick += (_, _) =>
+            {
+                var about = Application.OpenForms.OfType<PdfAboutDialog>().FirstOrDefault(); if (about is null) return;
+                var information = about.Controls.Find("VersionInformation", true).OfType<Label>().Single();
+                versionShown = information.Text.Contains("バージョン " + GitHubUpdater.CurrentVersion, StringComparison.Ordinal);
+                closeAbout.Stop(); about.Controls.Find("CloseAbout", true).OfType<Button>().Single().PerformClick();
+            };
+            closeAbout.Start();
+            help.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Name == "AboutApplication").PerformClick();
+        }
+        Check(versionShown);
         help.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Name == "UpdateApplication").PerformClick(); Check(requested);
         using (var dialog = new PdfUpdateDialog(new GitHubUpdater(new Handler(Metadata())), new Version(1, 0, 0), Path.Combine(root, "update-ui")) { TopLevel = false })
         {
             host.Controls.Add(dialog); dialog.Show();
             var button = dialog.Controls.Find("DownloadUpdate", true).OfType<Button>().Single();
             await WaitUntilAsync(() => button.Enabled); button.PerformClick();
-            await WaitUntilAsync(() => dialog.InstallerPath is not null && dialog.IsDisposed);
-            Check(File.ReadAllBytes(dialog.InstallerPath!).SequenceEqual(Installer));
+            await WaitUntilAsync(() => dialog.PackagePath is not null && dialog.IsDisposed);
+            Check(File.ReadAllBytes(dialog.PackagePath!).SequenceEqual(Installer));
         }
         using var current = new PdfUpdateDialog(new GitHubUpdater(new Handler(Metadata())), new Version(9, 0, 0)) { TopLevel = false };
         host.Controls.Add(current); current.Show();
