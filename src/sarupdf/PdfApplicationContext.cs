@@ -1,6 +1,7 @@
 using SaruPdf.Documents;
 using SaruPdf.Instances;
 using SaruPdf.Views;
+using SaruPdf.Updates;
 
 namespace SaruPdf;
 
@@ -13,6 +14,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
     private readonly Queue<Guid> recent = new();
     private readonly System.Windows.Forms.Timer exitTimer = new() { Interval = 200 };
     private bool stopping;
+    private PdfUpdateDialog? updateDialog;
 
     public PdfApplicationContext()
     {
@@ -90,6 +92,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
         var window = new PdfWindow(pageClipboard: pageClipboard);
         catalog.Add(window);
         window.OpenRequested += paths => HandleRequest(OpenRequest.FromArguments(paths, Environment.CurrentDirectory));
+        window.UpdateRequested += () => ShowUpdateDialog(window);
         window.CanUseDocumentPath = path => !catalog.TryFind(path, out var existing) || ReferenceEquals(existing, window);
         window.DocumentPathChanged += document => catalog.Reassign(document.Path, window);
         window.Activated += (_, _) => catalog.Activate(window);
@@ -99,6 +102,31 @@ internal sealed class PdfApplicationContext : ApplicationContext
             if (catalog.Windows.Count == 0) exitTimer.Start();
         };
         return window;
+    }
+
+    private void ShowUpdateDialog(PdfWindow owner)
+    {
+        if (updateDialog is not null) { updateDialog.Activate(); return; }
+        string? installer;
+        try
+        {
+            using var dialog = new PdfUpdateDialog(); updateDialog = dialog;
+            if (dialog.ShowDialog(owner) != DialogResult.OK) return;
+            installer = dialog.InstallerPath;
+        }
+        finally { updateDialog = null; }
+        if (installer is null) return;
+        try
+        {
+            var windows = catalog.Windows.ToArray();
+            // Confirm every document before closing any window. Cancelling a
+            // later prompt leaves all documents open and never starts setup.
+            foreach (var window in windows) if (!window.PrepareForUpdate()) return;
+            UpdateLauncher.Start(installer);
+            stopping = true;
+            foreach (var window in windows) window.CloseForUpdate();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { owner.ShowError("更新を開始できませんでした。\n" + ex.Message); }
     }
 
     public void ReportPipeFailure(Exception error)

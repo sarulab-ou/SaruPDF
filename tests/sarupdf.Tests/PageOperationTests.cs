@@ -318,6 +318,7 @@ internal static class PageOperationTests
         host.Controls.Add(window); window.SetDocument(DocumentPath.Open(path)); window.Show(); window.ToggleEditMode();
         var editor = Editor(window); var canvas = editor.Viewer;
         await ExpectCanvasColorAsync(canvas, 0, Color.Red);
+        await WaitUntilAsync(() => canvas.Visible); canvas.Focus();
         Key(window, Keys.Down); Check(canvas.SelectedPages.SequenceEqual([1]));
         await ExpectCanvasColorAsync(canvas, 1, Color.Lime);
         Key(window, Keys.Shift | Keys.Down); Key(window, Keys.Shift | Keys.Down);

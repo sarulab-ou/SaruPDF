@@ -29,6 +29,7 @@ internal sealed class PdfWindow : Form
     private PdfEditor? editor;
     private PdfCommentEditor? commentEditor;
     private int? appliedTitleMode;
+    private bool closingForUpdate;
     private PdfEditSession? ActiveSession => editor?.Session ?? commentEditor?.Session;
     private readonly ToolStripMenuItem editMode = new("ページ操作モード(&M)") { Name = "EditMode", Enabled = false };
     private readonly ToolStripMenuItem viewMode = new("Viewモード(&V)") { Name = "ViewMode", Checked = true };
@@ -46,6 +47,7 @@ internal sealed class PdfWindow : Form
     private PdfView? ActiveViewer => editor is null && commentEditor is null ? viewer : null;
 
     public event Action<string[]>? OpenRequested;
+    internal event Action? UpdateRequested;
     public event Action<PdfDocument>? DocumentPathChanged;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal Func<string, bool>? CanUseDocumentPath { get; set; }
@@ -112,6 +114,9 @@ internal sealed class PdfWindow : Form
             foreach (ToolStripItem item in display.DropDownItems) item.Enabled = document is not null;
         };
         menu.Items.Add(display);
+        var help = new ToolStripMenuItem("ヘルプ(&H)") { Name = "HelpMenu" };
+        help.DropDownItems.Add(new ToolStripMenuItem("更新(&U)…", null, (_, _) => UpdateRequested?.Invoke()) { Name = "UpdateApplication" });
+        menu.Items.Add(help);
         MainMenuStrip = menu;
 
         var dismiss = new Button { Text = "閉じる", Dock = DockStyle.Right, Width = 76, AccessibleName = "エラー表示を閉じる" };
@@ -570,9 +575,12 @@ internal sealed class PdfWindow : Form
         return answer == DialogResult.No || (answer == DialogResult.Yes && SaveEdits(false));
     }
 
+    internal bool PrepareForUpdate() => ConfirmFinishEditing();
+    internal void CloseForUpdate() { closingForUpdate = true; Close(); }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!ConfirmFinishEditing()) e.Cancel = true;
+        if (!closingForUpdate && !ConfirmFinishEditing()) e.Cancel = true;
         base.OnFormClosing(e);
     }
 

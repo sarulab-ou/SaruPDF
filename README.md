@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.9/SaruPDF-0.7.9-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.10/SaruPDF-0.7.10-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.9 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.9/SaruPDF-0.7.9-Setup-x64.exe)**
+**[SaruPDF v0.7.10 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.10/SaruPDF-0.7.10-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.9) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.9/SaruPDF-0.7.9-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.10) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.10/SaruPDF-0.7.10-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.9** です。
+現在の公開版は **v0.7.10** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -32,6 +32,12 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 更新時はSaruPDFの全ウィンドウを閉じてからインストーラーを実行してください。既定のインストール先は `%LOCALAPPDATA%\Programs\SaruPDF` です。配布するEXEとインストーラーは未署名です。Windows 10やWebView2未導入PCでの受け入れ確認は未完了です。[検証記録](docs/verification.md)も参照してください。
 
 ## 使い方
+
+### アプリを更新する
+
+**ヘルプ (H) → 更新**でGitHubの最新正式版を確認できます。新しい版がある場合は**ダウンロードして更新**を押します。進捗を表示してインストーラーを取得し、SHA-256を照合した後、未保存の変更を確認してすべてのPDFウィンドウを閉じます。続いてインストーラーが起動するので、画面に従って更新してください。保存確認で取り消すと更新を開始せず、PDFを開いたままにします。通信中は「閉じる」で中止できます。
+
+この機能はメニューから実行したときだけGitHubへ接続します。
 
 ### PDFを開く
 
@@ -128,6 +134,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは89件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは101件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)
