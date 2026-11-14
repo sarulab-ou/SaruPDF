@@ -6,7 +6,7 @@ namespace SaruPdf.Tests;
 internal static class SamplePdf
 {
     // Deterministic, original test documents. No personal/user documents are read.
-    public static void Write(string path, string name)
+    public static void Write(string path, string name, bool links = false)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var objects = new List<string>
@@ -18,9 +18,15 @@ internal static class SamplePdf
         for (int page = 1; page <= 3; page++)
         {
             int streamId = 5 + (page - 1) * 2;
-            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents {streamId} 0 R >>");
+            string annotations = links && page == 1 ? "/Annots [10 0 R]" : links && page == 3 ? "/Annots [11 0 R]" : "";
+            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents {streamId} 0 R {annotations} >>");
             var stream = $"0.14 0.25 0.45 rg 48 720 499 72 re f\nBT /F1 25 Tf 1 1 1 rg 65 745 Td ({name} - page {page}) Tj ET\nBT /F1 13 Tf 0.1 0.1 0.1 rg 55 670 Td (SaruPDF acceptance test / local PDF rendering) Tj 0 -32 Td (Use the mouse wheel to scroll between pages.) Tj 0 -32 Td (Reopening this document should preserve page and zoom.) Tj ET\n";
             objects.Add($"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}endstream");
+        }
+        if (links)
+        {
+            objects.Add("<< /Type /Annot /Subtype /Link /Rect [55 600 400 660] /Border [0 0 0] /Dest [8 0 R /XYZ 80 800 1.2] >>");
+            objects.Add("<< /Type /Annot /Subtype /Link /Rect [55 600 400 660] /Border [0 0 0] /Dest [6 0 R /XYZ 60 700 1.6] >>");
         }
         WriteObjects(path, objects);
     }

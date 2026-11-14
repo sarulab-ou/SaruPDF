@@ -124,6 +124,23 @@ internal sealed class PdfWindow : Form
         };
         menu.Items.Add(display);
         var tools = new ToolStripMenuItem("ツール(&T)") { Name = "ToolsMenu" };
+        var previousLocation = new ToolStripMenuItem("前の場所に戻る(&B)") { Name = "PreviousLocation", Enabled = false };
+        previousLocation.Click += async (_, _) =>
+        {
+            try { if (ActiveViewer is { } active) await active.GoBackAsync(); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { ShowError("前の場所に戻れませんでした。\n" + ex.Message); }
+        };
+        tools.DropDownOpening += async (_, _) =>
+        {
+            previousLocation.Enabled = false;
+            var active = ActiveViewer;
+            try
+            {
+                bool available = active is not null && await active.HasPreviousLocationAsync();
+                if (!IsDisposed && active == ActiveViewer) previousLocation.Enabled = available;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        };
         openLocation.Click += (_, _) =>
         {
             if (document is null) return;
@@ -131,6 +148,7 @@ internal sealed class PdfWindow : Form
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception or System.Runtime.InteropServices.COMException)
             { ShowError("エクスプローラーでファイルの場所を開けませんでした。\n" + ex.Message); }
         };
+        tools.DropDownItems.Add(previousLocation);
         tools.DropDownItems.Add(openLocation); menu.Items.Add(tools);
         var help = new ToolStripMenuItem("ヘルプ(&H)") { Name = "HelpMenu" };
         help.DropDownItems.Add(new ToolStripMenuItem("バージョン情報(&A)…", null, (_, _) =>

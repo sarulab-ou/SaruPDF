@@ -27,6 +27,7 @@ internal sealed class PdfView : UserControl
     private string? findTerm;
     private PdfPageViewState? pendingView;
     private Task restoringView = Task.CompletedTask;
+    private Task initializingHistory = Task.CompletedTask;
     private ulong navigationId;
     public event Action<string>? OpenRequested;
     public event Action? OpenDialogRequested;
@@ -87,6 +88,7 @@ internal sealed class PdfView : UserControl
                     navigationId = e.NavigationId;
                     var state = pendingView; pendingView = null;
                     restoringView = state is null ? Task.CompletedTask : RestorePageViewAsync(state, e.NavigationId);
+                    initializingHistory = InitializeLocationHistoryAsync(e.NavigationId);
                 }
                 else ShowFailure($"PDF を表示できませんでした（{e.WebErrorStatus}）。\nファイルが破損していないか、アクセス可能か確認してください。", false);
             };
@@ -224,6 +226,45 @@ internal sealed class PdfView : UserControl
         await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, $$"""
             (() => { const v = window.viewer?.viewport_; if (!v?.documentDimensions_) return false; v.{{method}}(); return true; })()
             """);
+    }
+
+    private async Task InitializeLocationHistoryAsync(ulong navigation)
+    {
+        try
+        {
+            await restoringView;
+            // Let the renderer apply the initial URL page/zoom before tracking.
+            await Task.Delay(300);
+            for (int attempt = 0; attempt < 25 && !IsDisposed && navigationId == navigation; attempt++)
+            {
+                var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, PdfLocationHistory.Install);
+                if (result is { ValueKind: System.Text.Json.JsonValueKind.True }) return;
+                await Task.Delay(100);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { }
+    }
+
+    internal async Task<bool> HasPreviousLocationAsync()
+    {
+        await initializingHistory;
+        if (!ready || IsDisposed || web.CoreWebView2 is null) return false;
+        var state = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, PdfLocationHistory.Peek);
+        return state is { ValueKind: System.Text.Json.JsonValueKind.Object };
+    }
+
+    internal async Task GoBackAsync()
+    {
+        await initializingHistory;
+        await restoringView;
+        if (!ready || IsDisposed || web.CoreWebView2 is null) return;
+        var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, PdfLocationHistory.Pop);
+        if (result is not { ValueKind: System.Text.Json.JsonValueKind.Object } state) return;
+        var position = System.Text.Json.JsonSerializer.Deserialize<PdfPageViewState>(state)!;
+        CancelPageInput();
+        restoringView = RestorePageViewAsync(position, navigationId);
+        await restoringView;
+        if (!IsDisposed) web.Focus();
     }
 
     internal async Task<PdfPageViewState?> CapturePageViewAsync()
