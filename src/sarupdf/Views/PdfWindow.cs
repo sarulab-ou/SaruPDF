@@ -1,4 +1,5 @@
 using SaruPdf.Documents;
+using SaruPdf.WindowsIntegration;
 
 namespace SaruPdf.Views;
 
@@ -47,6 +48,7 @@ internal sealed class PdfWindow : Form
     private readonly ToolStripMenuItem redoEdit = new("やり直し(&R)") { ShortcutKeys = Keys.Control | Keys.Y, Enabled = false };
     private readonly ToolStripMenuItem save = new("保存(&S)") { ShortcutKeys = Keys.Control | Keys.S, Enabled = false };
     private readonly ToolStripMenuItem saveAs = new("名前を付けて保存(&A)…") { ShortcutKeys = Keys.Control | Keys.Shift | Keys.S, Enabled = false };
+    private readonly ToolStripMenuItem openLocation = new("ファイルの場所を開く(&O)") { Name = "OpenFileLocation", Enabled = false };
     private PdfView? ActiveViewer => editor is null && commentEditor is null ? viewer : null;
 
     public event Action<string[]>? OpenRequested;
@@ -118,6 +120,15 @@ internal sealed class PdfWindow : Form
             foreach (ToolStripItem item in display.DropDownItems) item.Enabled = document is not null;
         };
         menu.Items.Add(display);
+        var tools = new ToolStripMenuItem("ツール(&T)") { Name = "ToolsMenu" };
+        openLocation.Click += (_, _) =>
+        {
+            if (document is null) return;
+            try { ExplorerLocation.Open(document.Path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception or System.Runtime.InteropServices.COMException)
+            { ShowError("エクスプローラーでファイルの場所を開けませんでした。\n" + ex.Message); }
+        };
+        tools.DropDownItems.Add(openLocation); menu.Items.Add(tools);
         var help = new ToolStripMenuItem("ヘルプ(&H)") { Name = "HelpMenu" };
         help.DropDownItems.Add(new ToolStripMenuItem("バージョン情報(&A)…", null, (_, _) =>
         {
@@ -178,6 +189,7 @@ internal sealed class PdfWindow : Form
         this.document = document;
         Text = $"{document.FileName}（{document.Path}）";
         pathBox.Text = document.Path;
+        openLocation.Enabled = true;
         foreach (Control child in content.Controls) child.Dispose();
         content.Controls.Clear();
         CreateViewer(document);
