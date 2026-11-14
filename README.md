@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.13/SaruPDF-0.7.13-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.14/SaruPDF-0.7.14-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.13 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.13/SaruPDF-0.7.13-Setup-x64.exe)**
+**[SaruPDF v0.7.14 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.14/SaruPDF-0.7.14-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.13) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.13/SaruPDF-0.7.13-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.14) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.14/SaruPDF-0.7.14-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.13** です。
+現在の公開版は **v0.7.14** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -52,6 +52,8 @@ View・ページ操作・コメントのどのモードへ切り替えても、�
 **表示 (V)** メニューから、ページ幅を基準に表示、1ページ、ズームイン、ズームアウトを選べます。「1ページ」は、現在のページ全体が画面内に収まる倍率にします。全モードで利用できます。
 
 開いているPDFのフルパスはメニュー下のアドレスバーで確認・コピーできます。Alt+Dでアドレスバーに移動し、パスを全選択します。名前を付けて保存すると、新しい保存先に更新されます。
+
+外部のアプリがPDFを上書き・置換すると、保存完了を確認して自動で再読み込みします。現在のモード・倍率・表示位置を引き継ぎます。未保存の編集がある場合は保留して通知するため、編集を残す場合は「名前を付けて保存」を使用してください。
 
 **Ctrl+F** または **編集 → 検索**で検索窓を開きます。文字を入力してEnterまたは「次を検索」を押すと、一致箇所に移動して色を付けます。「前を検索」やShift+Enterで前へ、F3／Shift+F3でも移動でき、最後まで進むと先頭に戻ります。ページ操作・コメントモードでは一致箇所を明るい紫で表示します。Viewモードの色はビューアーの表示に従います。検索窓のEscまたは「×」で閉じます。
 
@@ -138,6 +140,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは103件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは104件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

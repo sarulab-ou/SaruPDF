@@ -197,6 +197,7 @@ internal static class Program
         await Test("page-operation mode inherits actual PDF zoom and removes Ctrl+N", () => PageOperationTests.VerifyInheritedZoomAsync(root));
         await Test("all modes preserve PDF zoom and horizontal and vertical position", () => PageOperationTests.VerifyAllModeViewStateAsync(root));
         await Test("View menu fits width and one page and zooms in all modes", () => PageOperationTests.VerifyViewMenuAsync(root));
+        await Test("external PDF writes reload all modes, retain viewport and protect unsaved edits", () => PdfReloadTests.VerifyAsync(root));
         await Test("arrow keys move pages and Shift extends, shrinks and reverses the selection", () => PageOperationTests.VerifyArrowSelectionAsync(root));
         await Test("page-operation mode sets and restores native title bar colors", () => PageOperationTests.VerifyTitleBarAsync(root));
         await Test("current page stays centered and has a different visual marker from selected pages", () => PageOperationTests.VerifyCurrentPageAsync(root));

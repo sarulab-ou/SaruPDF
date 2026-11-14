@@ -40,10 +40,12 @@ internal sealed class PdfEditSession : IDisposable
     internal bool CanRedo => redo.Count > 0;
     internal int Revision { get; private set; }
 
-    internal PdfEditSession(string path)
+    internal bool MatchesSource(byte[] hash) => hash.AsSpan().SequenceEqual(savedHash);
+
+    internal PdfEditSession(string path, byte[]? sourceBytes = null)
     {
         SourcePath = DocumentPath.Open(path).Path;
-        original = File.ReadAllBytes(SourcePath);
+        original = sourceBytes ?? File.ReadAllBytes(SourcePath);
         savedHash = SHA256.HashData(original);
         using var input = new MemoryStream(original, false);
         using var pdf = PdfReader.Open(input, PdfDocumentOpenMode.Modify);

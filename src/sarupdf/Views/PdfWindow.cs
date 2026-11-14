@@ -30,6 +30,9 @@ internal sealed class PdfWindow : Form
     private PdfCommentEditor? commentEditor;
     private int? appliedTitleMode;
     private bool closingForUpdate;
+    private PdfSourceWatcher? sourceWatcher;
+    private PdfSourceSnapshot? pendingSource;
+    private bool reloadingSource, sourceReloadQueued, externalNotice;
     private PdfEditSession? ActiveSession => editor?.Session ?? commentEditor?.Session;
     private readonly ToolStripMenuItem editMode = new("ページ操作モード(&M)") { Name = "EditMode", Enabled = false };
     private readonly ToolStripMenuItem viewMode = new("Viewモード(&V)") { Name = "ViewMode", Checked = true };
@@ -181,6 +184,87 @@ internal sealed class PdfWindow : Form
         editMode.Enabled = true;
         commentMode.Enabled = true;
         if (Visible) _ = viewer!.LoadAsync();
+        WatchSource();
+    }
+
+    private void WatchSource()
+    {
+        sourceWatcher?.Dispose(); sourceWatcher = null; pendingSource = null;
+        if (document is null) return;
+        try
+        {
+            var watcher = new PdfSourceWatcher(document.Path); sourceWatcher = watcher;
+            void Post(Action action)
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                try { BeginInvoke(() => { if (!IsDisposed && ReferenceEquals(sourceWatcher, watcher)) action(); }); }
+                catch (InvalidOperationException) { }
+            }
+            watcher.Changed += snapshot => Post(() =>
+            {
+                if (ActiveSession?.MatchesSource(snapshot.Hash) == true)
+                {
+                    pendingSource = null;
+                    if (externalNotice) { errorPanel.Visible = false; externalNotice = false; }
+                    return;
+                }
+                pendingSource = snapshot;
+                if (ActiveSession?.IsDirty == true)
+                {
+                    externalNotice = true;
+                    ShowError("PDFが外部で変更されました。未保存の編集を保護するため再読み込みを保留しています。編集内容を残す場合は「名前を付けて保存」を使用してください。");
+                }
+                QueueSourceReload();
+            });
+            watcher.Failed += _ => Post(() =>
+            {
+                externalNotice = true;
+                ShowError("PDFの変更を検知しましたが、読み取れませんでした。現在の表示を保持しています。ファイルの保存完了やアクセス権を確認してください。");
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        { ShowError("PDFの変更監視を開始できませんでした。\n" + ex.Message); }
+    }
+    private void QueueSourceReload()
+    {
+        if (IsDisposed || !IsHandleCreated || pendingSource is null || sourceReloadQueued || reloadingSource) return;
+        sourceReloadQueued = true;
+        try { BeginInvoke(async () => { sourceReloadQueued = false; if (!IsDisposed) await ReloadSourceAsync(); }); }
+        catch (InvalidOperationException) { sourceReloadQueued = false; }
+    }
+    private async Task ReloadSourceAsync()
+    {
+        if (document is null || viewer is null || pendingSource is not { } snapshot || ActiveSession?.IsDirty == true ||
+            editor is { Visible: false } || commentEditor is { Visible: false }) return;
+        reloadingSource = true;
+        try
+        {
+            var state = SearchCanvas?.CapturePageView() ?? await viewer.CapturePageViewAsync();
+            if (IsDisposed || !ReferenceEquals(pendingSource, snapshot) || ActiveSession?.IsDirty == true) return;
+            // Construct the replacement before releasing the existing session.
+            _ = DocumentPath.Open(snapshot.Path);
+            PdfEditSession? session = ActiveSession is null ? null : new PdfEditSession(snapshot.Path, snapshot.Bytes);
+            bool pages = editor is not null, comments = commentEditor is not null;
+            pendingSource = null; ResetSearch();
+            if (externalNotice) { errorPanel.Visible = false; externalNotice = false; }
+            if (pages)
+            {
+                content.Controls.Remove(editor!); editor!.Dispose(); editor = null;
+                AttachEditor(session!, Task.FromResult(state));
+            }
+            else if (comments)
+            {
+                content.Controls.Remove(commentEditor!); commentEditor!.Dispose(); commentEditor = null;
+                AttachCommentEditor(session!, Task.FromResult(state));
+            }
+            else viewer.NavigateDocument(document, (state?.Page ?? 0) + 1, state);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            if (!IsDisposed && ReferenceEquals(pendingSource, snapshot)) pendingSource = null;
+            if (!IsDisposed) ShowError("PDFを再読み込みできませんでした。\n" + ex.Message);
+        }
+        finally { reloadingSource = false; QueueSourceReload(); }
     }
 
     private void CreateViewer(PdfDocument document)
@@ -210,6 +294,7 @@ internal sealed class PdfWindow : Form
     {
         var state = await viewState;
         if (IsDisposed || target.IsDisposed || !ReferenceEquals(editor, target)) return;
+        if (state is not null) state = state with { Page = Math.Clamp(state.Page, 0, target.Session.PageCount - 1) };
         target.Viewer.InheritView(state);
         await target.LoadAsync();
         if (IsDisposed || target.IsDisposed || !ReferenceEquals(editor, target)) return;
@@ -220,6 +305,7 @@ internal sealed class PdfWindow : Form
         // partial page layout. Recalculate it after the surface becomes visible.
         target.Viewer.PerformLayout();
         if (state is not null) target.Viewer.RestorePosition(state);
+        QueueSourceReload();
     }
 
     private void SelectImportPdfs(int index)
@@ -368,6 +454,7 @@ internal sealed class PdfWindow : Form
             viewer.NavigateDocument(document, (state?.Page ?? 0) + 1, state);
             _ = viewer.LoadAsync();
             UpdateEditMenus();
+            QueueSourceReload();
             return;
         }
         PdfEditSession? session = null;
@@ -410,11 +497,7 @@ internal sealed class PdfWindow : Form
             ResetSearch();
             viewer.CancelPageInput();
             session = new PdfEditSession(document.Path);
-            commentEditor = new PdfCommentEditor(session) { Visible = false };
-            commentEditor.StateChanged += UpdateEditMenus;
-            commentEditor.Failed += ex => ShowError("コメントを処理できませんでした。\n" + ex.Message);
-            content.Controls.Add(commentEditor); UpdateEditMenus();
-            _ = LoadCommentEditorAsync(commentEditor, inherited is null ? viewer.CapturePageViewAsync() : Task.FromResult<PdfPageViewState?>(inherited));
+            AttachCommentEditor(session, inherited is null ? viewer.CapturePageViewAsync() : Task.FromResult<PdfPageViewState?>(inherited));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -424,19 +507,31 @@ internal sealed class PdfWindow : Form
         }
     }
 
+    private void AttachCommentEditor(PdfEditSession session, Task<PdfPageViewState?> state)
+    {
+        commentEditor = new PdfCommentEditor(session) { Visible = false };
+        commentEditor.StateChanged += UpdateEditMenus;
+        commentEditor.Failed += ex => ShowError("コメントを処理できませんでした。\n" + ex.Message);
+        content.Controls.Add(commentEditor); UpdateEditMenus();
+        _ = LoadCommentEditorAsync(commentEditor, state);
+    }
+
     private async Task LoadCommentEditorAsync(PdfCommentEditor target, Task<PdfPageViewState?> viewState)
     {
         var state = await viewState;
         if (IsDisposed || target.IsDisposed || !ReferenceEquals(commentEditor, target)) return;
+        if (state is not null) state = state with { Page = Math.Clamp(state.Page, 0, target.Session.PageCount - 1) };
         await target.LoadAsync(state);
         if (IsDisposed || target.IsDisposed || !ReferenceEquals(commentEditor, target)) return;
         if (viewer is not null) viewer.Visible = false;
         target.Visible = true; target.BringToFront(); target.Viewer.PerformLayout(); target.Viewer.Focus();
         if (state is not null) target.Viewer.RestorePosition(state);
+        QueueSourceReload();
     }
 
     private void UpdateEditMenus()
     {
+        if (pendingSource is not null && ActiveSession?.IsDirty != true) QueueSourceReload();
         if (searchRevision >= 0 && ActiveSession is { } session && session.Revision != searchRevision) ResetSearch();
         editMode.Checked = editor is not null;
         commentMode.Checked = commentEditor is not null;
@@ -559,6 +654,7 @@ internal sealed class PdfWindow : Form
             UseWaitCursor = true;
             session.Save(path);
             document = DocumentPath.Open(path);
+            WatchSource();
             if (viewer is null) { CreateViewer(document); viewer!.Visible = false; }
             editMode.Enabled = true;
             pathBox.Text = document.Path;
@@ -582,6 +678,12 @@ internal sealed class PdfWindow : Form
 
     internal bool PrepareForUpdate() => ConfirmFinishEditing();
     internal void CloseForUpdate() { closingForUpdate = true; Close(); }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { sourceWatcher?.Dispose(); sourceWatcher = null; }
+        base.Dispose(disposing);
+    }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
