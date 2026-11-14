@@ -1,8 +1,9 @@
 using SaruPdf.Documents;
+using SaruPdf.Updates;
 
 namespace SaruPdf.Instances;
 
-internal sealed record OpenRequest(Guid Id, string[] Paths, string[] Errors)
+internal sealed record OpenRequest(Guid Id, string[] Paths, string[] Errors, UpdateSession? Session = null)
 {
     public static OpenRequest FromArguments(string[] args, string workingDirectory)
     {

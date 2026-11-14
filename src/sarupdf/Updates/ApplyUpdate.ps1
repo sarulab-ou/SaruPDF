@@ -23,7 +23,8 @@ function SafePath([string]$root, [string]$relative) {
 }
 function RestartApp {
     $start = @{FilePath = (Join-Path $target 'SaruPDF.exe'); WorkingDirectory = $target}
-    if ($request.Documents.Count -gt 0) { $start.ArgumentList = (@($request.Documents | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' ') }
+    if ($request.ResumeSession) { $start.ArgumentList = '--restore-session "' + $request.ResumeSession + '"' }
+    elseif ($request.Documents.Count -gt 0) { $start.ArgumentList = (@($request.Documents | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' ') }
     Start-Process @start
 }
 function FileHash([string]$path) {

@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.15/SaruPDF-0.7.15-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.16/SaruPDF-0.7.16-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.15 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.15/SaruPDF-0.7.15-Setup-x64.exe)**
+**[SaruPDF v0.7.16 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.16/SaruPDF-0.7.16-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.15) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.15/SaruPDF-0.7.15-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.16) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.16/SaruPDF-0.7.16-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.15** です。
+現在の公開版は **v0.7.16** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -40,6 +40,8 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 **ヘルプ (H) → 更新**でGitHubの最新正式版を確認できます。新しい版がある場合は**ダウンロードして更新**を押します。更新専用ZIPを取得・検証し、未保存の変更を確認してからSaruPDFを終了します。その後ファイルを置き換えて再起動し、開いていたPDFを開き直します。インストーラーの操作は不要です。置き換えに失敗した場合は元のファイルへ戻します。保存確認で取り消すとPDFを開いたままにします。通信中は「閉じる」で中止できます。
 
 ZIP更新方式とバージョン情報画面はv0.7.12から利用できます。v0.7.11以前には旧更新処理が入っているため、新方式を導入する最初の更新だけは従来のインストーラーを使います。
+
+v0.7.16以降から更新すると、開いていたPDFごとに**モード・倍率・表示位置**を復元します。ウィンドウの位置・サイズ・最大化と、コメントモードのキャレット・選択範囲も引き継ぎます。未保存の編集内容は更新前の保存確認に従います。v0.7.15以前からの更新では、更新前に表示状態を記録できないためPDFの再オープンのみになります。
 
 この機能はメニューから実行したときだけGitHubへ接続します。
 
@@ -141,6 +143,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは104件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは108件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

@@ -16,6 +16,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
     private bool stopping;
     private PdfUpdateDialog? updateDialog;
     private bool preparingUpdate;
+    private bool capturingUpdate;
 
     public PdfApplicationContext()
     {
@@ -38,7 +39,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
         {
             dispatcher.BeginInvoke(() =>
             {
-                if (stopping) { result.TrySetResult(false); return; }
+                if (stopping || capturingUpdate) { result.TrySetResult(false); return; }
                 try { HandleRequest(request); result.TrySetResult(true); }
                 catch (Exception ex) { result.TrySetException(ex); }
             });
@@ -52,14 +53,24 @@ internal sealed class PdfApplicationContext : ApplicationContext
         if (completed.Contains(request.Id)) return;
         exitTimer.Stop();
         List<string> errors = [.. request.Errors];
+        List<Task> restorations = [];
         foreach (var path in request.Paths)
         {
-            try { OpenDocument(path); }
+            try
+            {
+                bool alreadyOpen = catalog.TryFind(path, out _);
+                var state = request.Session?.Windows.FirstOrDefault(w => string.Equals(w.Path, path, StringComparison.OrdinalIgnoreCase));
+                var window = OpenDocument(path, alreadyOpen ? null : state?.Placement);
+                if (!alreadyOpen && state is not null) restorations.Add(RestoreWindowAsync(window, state));
+            }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             { errors.Add($"{path}\n{DocumentPath.Explain(ex)}"); }
         }
 
-        if (catalog.Windows.Count == 0) CreateWindow().Show();
+        if (catalog.Windows.Count == 0)
+        {
+            var empty = CreateWindow(); empty.RestorePlacement(request.Session?.Windows.FirstOrDefault(w => w.Path is null)?.Placement); empty.Show();
+        }
         if (request.Paths.Length == 0 || errors.Count > 0)
         {
             var window = catalog.LastActive ?? catalog.Windows[0];
@@ -69,9 +80,25 @@ internal sealed class PdfApplicationContext : ApplicationContext
         completed.Add(request.Id);
         recent.Enqueue(request.Id);
         if (recent.Count > 128) completed.Remove(recent.Dequeue());
+        if (request.Session is { } session) _ = FinishRestoreAsync(session, restorations);
     }
 
-    private void OpenDocument(string path)
+    private static async Task RestoreWindowAsync(PdfWindow window, PdfWindowState state)
+    {
+        try { await window.RestoreAfterUpdateAsync(state); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { if (!window.IsDisposed) window.ShowError("更新前の表示状態を復元できませんでした。\n" + ex.Message); }
+    }
+    private async Task FinishRestoreAsync(UpdateSession session, List<Task> tasks)
+    {
+        await Task.WhenAll(tasks);
+        if (stopping || session.ActiveIndex < 0 || session.ActiveIndex >= session.Windows.Length) return;
+        string? path = session.Windows[session.ActiveIndex].Path;
+        PdfWindow? window = null;
+        if (path is not null) catalog.TryFind(path, out window); else window = catalog.EmptyWindow;
+        if (window is not null && !window.IsDisposed) NativeWindows.Activate(window);
+    }
+
+    private PdfWindow OpenDocument(string path, WindowPlacement? placement = null)
     {
         // Check the path before reading: reopening preserves the current PDF view even
         // when an external application has since replaced/deleted the original file.
@@ -79,13 +106,15 @@ internal sealed class PdfApplicationContext : ApplicationContext
         if (catalog.TryFind(normalized, out var existing))
         {
             NativeWindows.Activate(existing!);
-            return;
+            return existing!;
         }
         var document = DocumentPath.Open(normalized);
         var window = catalog.EmptyWindow ?? CreateWindow();
         catalog.Assign(document.Path, window);
+        window.RestorePlacement(placement);
         window.SetDocument(document);
         NativeWindows.Activate(window);
+        return window;
     }
 
     private PdfWindow CreateWindow()
@@ -120,6 +149,7 @@ internal sealed class PdfApplicationContext : ApplicationContext
         }
         finally { updateDialog = null; }
         if (package is null) return;
+        List<PdfWindow> frozen = [];
         try
         {
             preparingUpdate = true;
@@ -131,12 +161,21 @@ internal sealed class PdfApplicationContext : ApplicationContext
             // Confirm every document before closing any window. Cancelling a
             // later prompt leaves all documents open and never starts setup.
             foreach (var window in windows) if (!window.PrepareForUpdate()) return;
-            UpdateLauncher.Start(update, windows.Select(w => w.OpenDocumentPath).OfType<string>().ToArray());
+            int active = Math.Max(0, Array.IndexOf(windows, catalog.LastActive));
+            capturingUpdate = true;
+            foreach (var window in windows) { window.FreezeForUpdate(true); frozen.Add(window); }
+            var states = await Task.WhenAll(windows.Select(w => w.CaptureForUpdateAsync()));
+            UpdateLauncher.Start(update, new UpdateSession(1, states, active));
             stopping = true;
             foreach (var window in windows) window.CloseForUpdate();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { owner.ShowError("更新を開始できませんでした。\n" + ex.Message); }
-        finally { preparingUpdate = false; if (!owner.IsDisposed) owner.UseWaitCursor = false; }
+        finally
+        {
+            capturingUpdate = false; preparingUpdate = false;
+            foreach (var window in frozen) if (!window.IsDisposed) window.FreezeForUpdate(false);
+            if (!owner.IsDisposed) owner.UseWaitCursor = false;
+        }
     }
 
     public void ReportPipeFailure(Exception error)

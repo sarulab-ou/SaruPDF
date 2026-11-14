@@ -4,6 +4,7 @@ using System.Security.Principal;
 using System.Text;
 using SaruPdf.Instances;
 using SaruPdf.WindowsIntegration;
+using SaruPdf.Updates;
 
 namespace SaruPdf;
 
@@ -14,7 +15,16 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         if (AssociationCommand.Handle(args) is int associationResult) return associationResult;
+        UpdateSession? session = null;
+        if (args.Length == 2 && args[0] == UpdateSessionFile.Switch)
+        {
+            try { session = UpdateSessionFile.Read(args[1]); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException)
+            { MessageBox.Show("更新前の表示状態を読み込めませんでした。\n" + ex.Message, "SaruPDF", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            args = session?.Windows.Select(w => w.Path).OfType<string>().ToArray() ?? [];
+        }
         var request = OpenRequest.FromArguments(args, Environment.CurrentDirectory);
+        request = request with { Session = session };
         string identity = $"{WindowsIdentity.GetCurrent().User?.Value}:{Process.GetCurrentProcess().SessionId}";
         string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..24];
         string name = $"sarupdf.v1.{suffix}"; // Keep IPC compatibility with the initial release.

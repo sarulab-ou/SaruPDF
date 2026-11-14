@@ -1,5 +1,6 @@
 using SaruPdf.Documents;
 using SaruPdf.WindowsIntegration;
+using SaruPdf.Updates;
 
 namespace SaruPdf.Views;
 
@@ -34,6 +35,8 @@ internal sealed class PdfWindow : Form
     private PdfSourceWatcher? sourceWatcher;
     private PdfSourceSnapshot? pendingSource;
     private bool reloadingSource, sourceReloadQueued, externalNotice;
+    private bool capturingUpdate, enabledBeforeUpdate;
+    private Task loadingMode = Task.CompletedTask;
     private PdfEditSession? ActiveSession => editor?.Session ?? commentEditor?.Session;
     private readonly ToolStripMenuItem editMode = new("ページ操作モード(&M)") { Name = "EditMode", Enabled = false };
     private readonly ToolStripMenuItem viewMode = new("Viewモード(&V)") { Name = "ViewMode", Checked = true };
@@ -239,14 +242,14 @@ internal sealed class PdfWindow : Form
     }
     private void QueueSourceReload()
     {
-        if (IsDisposed || !IsHandleCreated || pendingSource is null || sourceReloadQueued || reloadingSource) return;
+        if (IsDisposed || !IsHandleCreated || capturingUpdate || pendingSource is null || sourceReloadQueued || reloadingSource) return;
         sourceReloadQueued = true;
         try { BeginInvoke(async () => { sourceReloadQueued = false; if (!IsDisposed) await ReloadSourceAsync(); }); }
         catch (InvalidOperationException) { sourceReloadQueued = false; }
     }
     private async Task ReloadSourceAsync()
     {
-        if (document is null || viewer is null || pendingSource is not { } snapshot || ActiveSession?.IsDirty == true ||
+        if (capturingUpdate || document is null || viewer is null || pendingSource is not { } snapshot || ActiveSession?.IsDirty == true ||
             editor is { Visible: false } || commentEditor is { Visible: false }) return;
         reloadingSource = true;
         try
@@ -299,7 +302,7 @@ internal sealed class PdfWindow : Form
         editor.Visible = false;
         content.Controls.Add(editor); editor.BringToFront();
         UpdateEditMenus();
-        _ = LoadEditorAsync(editor, viewState);
+        loadingMode = LoadEditorAsync(editor, viewState);
     }
 
     private async Task LoadEditorAsync(PdfEditor target, Task<PdfPageViewState?> viewState)
@@ -525,7 +528,7 @@ internal sealed class PdfWindow : Form
         commentEditor.StateChanged += UpdateEditMenus;
         commentEditor.Failed += ex => ShowError("コメントを処理できませんでした。\n" + ex.Message);
         content.Controls.Add(commentEditor); UpdateEditMenus();
-        _ = LoadCommentEditorAsync(commentEditor, state);
+        loadingMode = LoadCommentEditorAsync(commentEditor, state);
     }
 
     private async Task LoadCommentEditorAsync(PdfCommentEditor target, Task<PdfPageViewState?> viewState)
@@ -689,6 +692,43 @@ internal sealed class PdfWindow : Form
     }
 
     internal bool PrepareForUpdate() => ConfirmFinishEditing();
+    internal void FreezeForUpdate(bool freeze)
+    {
+        if (freeze) { enabledBeforeUpdate = Enabled; capturingUpdate = true; Enabled = false; }
+        else { capturingUpdate = false; Enabled = enabledBeforeUpdate; QueueSourceReload(); }
+    }
+    internal async Task<PdfWindowState> CaptureForUpdateAsync()
+    {
+        await loadingMode;
+        var view = SearchCanvas?.CapturePageView() ?? (viewer is null ? null : await viewer.CapturePageViewAsync());
+        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        var selection = commentEditor?.Viewer.Selection;
+        return new(document?.Path, editor is not null ? PdfDisplayMode.Pages : commentEditor is not null ? PdfDisplayMode.Comments : PdfDisplayMode.View,
+            view, new(bounds.X, bounds.Y, bounds.Width, bounds.Height, WindowState == FormWindowState.Maximized), selection?.Caret, selection?.Anchor);
+    }
+    internal void RestorePlacement(WindowPlacement? placement)
+    {
+        if (!TopLevel || placement is not { } p) return;
+        var bounds = new Rectangle(p.X, p.Y, p.Width, p.Height);
+        if (Screen.AllScreens.Any(screen => Rectangle.Intersect(screen.WorkingArea, bounds) is { Width: >= 80, Height: >= 80 }))
+        { StartPosition = FormStartPosition.Manual; Bounds = bounds; }
+        if (p.Maximized) WindowState = FormWindowState.Maximized;
+    }
+    internal async Task RestoreAfterUpdateAsync(PdfWindowState state)
+    {
+        if (document is null || viewer is null || editor is not null || commentEditor is not null) return;
+        if (state.Mode == PdfDisplayMode.View) { viewer.NavigateDocument(document, (state.View?.Page ?? 0) + 1, state.View); return; }
+        var session = new PdfEditSession(document.Path);
+        ResetSearch();
+        if (state.Mode == PdfDisplayMode.Pages) AttachEditor(session, Task.FromResult(state.View));
+        else AttachCommentEditor(session, Task.FromResult(state.View));
+        await loadingMode;
+        if (IsDisposed) return;
+        if (commentEditor?.Viewer.Selection is { } selection && state.Caret is { } caret)
+        {
+            selection.Set(state.Anchor ?? caret, false); selection.Set(caret, true); commentEditor.Viewer.Invalidate();
+        }
+    }
     internal void CloseForUpdate() { closingForUpdate = true; Close(); }
 
     protected override void Dispose(bool disposing)
