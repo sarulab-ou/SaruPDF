@@ -264,7 +264,12 @@ internal sealed class PdfView : UserControl
         CancelPageInput();
         restoringView = RestorePageViewAsync(position, navigationId);
         await restoringView;
-        if (!IsDisposed) web.Focus();
+        if (!IsDisposed)
+        {
+            try { await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, PdfLocationHistory.PulseReturn); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
+            web.Focus();
+        }
     }
 
     internal async Task<PdfPageViewState?> CapturePageViewAsync()

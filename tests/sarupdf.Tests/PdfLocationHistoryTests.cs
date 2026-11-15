@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using SaruPdf.Documents;
 using SaruPdf.Views;
@@ -25,6 +26,31 @@ internal static class PdfLocationHistoryTests
         var first = (await view.CapturePageViewAsync())!;
         Check(!await view.HasPreviousLocationAsync(), "Ordinary scrolling/zoom must not add history");
 
+        async Task<JsonElement> CheckPulse(string name, int expectedPage)
+        {
+            var pulse = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, """
+                (()=>{const e=document.querySelector('[data-sarupdf-location-pulse]');if(!e)return null;
+                    const r=e.getBoundingClientRect();return {page:Number(e.getAttribute('data-sarupdf-location-pulse')),
+                        x:r.x,y:r.y,width:r.width,height:r.height,viewportWidth:innerWidth,pointerEvents:e.style.pointerEvents};})()
+                """);
+            Check(pulse is { ValueKind: JsonValueKind.Object }, "Destination pulse is missing");
+            var info = pulse!.Value;
+            Check(info.GetProperty("page").GetInt32() == expectedPage && info.GetProperty("pointerEvents").GetString() == "none", "Wrong destination or blocking overlay");
+            using var stream = new MemoryStream();
+            await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
+            stream.Position = 0; using var bitmap = new Bitmap(stream);
+            bitmap.Save(Path.Combine(root, name + ".png"));
+            double scale = bitmap.Width / info.GetProperty("viewportWidth").GetDouble();
+            var rect = Rectangle.Intersect(new Rectangle(0, 0, bitmap.Width, bitmap.Height), Rectangle.FromLTRB(
+                (int)(info.GetProperty("x").GetDouble()*scale), (int)(info.GetProperty("y").GetDouble()*scale),
+                (int)((info.GetProperty("x").GetDouble()+36)*scale)+1, (int)((info.GetProperty("y").GetDouble()+36)*scale)+1));
+            int red = 0;
+            for (int y = rect.Top; y < rect.Bottom; y++) for (int x = rect.Left; x < rect.Right; x++)
+            { var color = bitmap.GetPixel(x, y); if (color.R > 180 && color.R > color.G+40 && color.R > color.B+40) red++; }
+            Check(red > 25, $"Red ring is not visibly rendered: {red} pixels");
+            return info;
+        }
+
         async Task ClickLink(int page)
         {
             var point = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, $$"""
@@ -38,8 +64,10 @@ internal static class PdfLocationHistoryTests
         await ClickLink(0);
         var second = (await view.CapturePageViewAsync())!;
         Check(second.Page == 2 && await view.HasPreviousLocationAsync(), $"Reference link did not navigate: {second}");
+        await CheckPulse("link-arrival-pulse", 2);
         await ClickLink(2);
         Check((await view.CapturePageViewAsync())?.Page == 1, "Second reference link did not navigate");
+        await CheckPulse("second-link-arrival-pulse", 1);
 
         var tools = window.MainMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(i => i.Name == "ToolsMenu");
         var back = tools.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Name == "PreviousLocation");
@@ -47,7 +75,18 @@ internal static class PdfLocationHistoryTests
         await WaitUntilAsync(() => back.Enabled);
         back.PerformClick(); await Task.Delay(500);
         EqualPosition(second, (await view.CapturePageViewAsync())!);
+        await CheckPulse("link-return-pulse", 2);
         await view.GoBackAsync(); EqualPosition(first, (await view.CapturePageViewAsync())!);
+        var sourcePulse = await CheckPulse("original-reference-pulse", 0);
+        var expectedPoint = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, """
+            (()=>{const r=window.viewer.viewport_.getPageScreenRect(0);return {x:r.x+r.width*100/595,y:r.y+r.height*(842-630)/842};})()
+            """);
+        Check(Math.Abs(sourcePulse.GetProperty("x").GetDouble()+18-expectedPoint!.Value.GetProperty("x").GetDouble()) < 5 &&
+            Math.Abs(sourcePulse.GetProperty("y").GetDouble()+18-expectedPoint.Value.GetProperty("y").GetDouble()) < 5,
+            "Return marker must identify the original clicked reference");
+        await Task.Delay(1000);
+        var removed = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, "document.querySelector('[data-sarupdf-location-pulse]') === null");
+        Check(removed is { ValueKind: JsonValueKind.True }, "Destination marker did not disappear");
         Check(!await view.HasPreviousLocationAsync(), "Nested navigation must create one history entry per link");
         await view.GoBackAsync(); EqualPosition(first, (await view.CapturePageViewAsync())!);
         await ClickLink(0); Check(await view.HasPreviousLocationAsync(), "History did not resume after returning");

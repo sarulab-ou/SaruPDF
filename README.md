@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.17/SaruPDF-0.7.17-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.18/SaruPDF-0.7.18-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.17 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.17/SaruPDF-0.7.17-Setup-x64.exe)**
+**[SaruPDF v0.7.18 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.18/SaruPDF-0.7.18-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.17) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.17/SaruPDF-0.7.17-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.18) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.18/SaruPDF-0.7.18-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.17** です。
+現在の公開版は **v0.7.18** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -57,6 +57,7 @@ View・ページ操作・コメントのどのモードへ切り替えても、�
 **ツール (T) → ファイルの場所を開く**で、PDFの保存先をエクスプローラーで開き、対象ファイルを選択します。
 
 Viewモードで引用などのPDF内リンクをたどった後は、**ツール (T) → 前の場所に戻る**で、移動前の倍率と表示位置へ戻れます。複数のリンクをたどった場合は順に戻れます。戻れる履歴がない場合は項目が無効になります。文書の再読み込みやアプリの終了で履歴を消去します。
+リンクで移動した先と「前の場所に戻る」で戻った位置には、赤い丸を約0.9秒間表示します。戻るときはクリックした引用付近を示します。丸は自動で消え、PDFには保存されません。
 
 外部のアプリがPDFを上書き・置換すると、保存完了を確認して自動で再読み込みします。現在のモード・倍率・表示位置を引き継ぎます。未保存の編集がある場合は保留して通知するため、編集を残す場合は「名前を付けて保存」を使用してください。
 
