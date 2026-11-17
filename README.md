@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.18/SaruPDF-0.7.18-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.19/SaruPDF-0.7.19-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.18 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.18/SaruPDF-0.7.18-Setup-x64.exe)**
+**[SaruPDF v0.7.19 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.19/SaruPDF-0.7.19-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.18) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.18/SaruPDF-0.7.18-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.19) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.19/SaruPDF-0.7.19-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.18** です。
+現在の公開版は **v0.7.19** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -90,6 +90,8 @@ Viewモードで引用などのPDF内リンクをたどった後は、**ツー�
 
 ### コメントを付ける
 
+他のアプリで作成されたハイライトのコメントも、View・ページ操作・コメントの全モードで**7 ptの赤字**を重ねて表示します。元の注釈・作成者情報はそのまま保持し、開くだけではPDFを書き換えません。外部コメントは既存の注釈として読み取り表示します。
+
 1. **編集 → コメントモード**を選びます。
 2. 本文を**マウスでドラッグ**するか、キャレットを移動しながら**Shift**を押して文字を選択します。
 3. **Enter**、または右クリックの**「コメントを追加」**でコメントを入力します。コメント欄のEnterは改行、Ctrl+Enterは確定です。
@@ -146,6 +148,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは109件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは111件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

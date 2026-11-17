@@ -28,6 +28,7 @@ internal sealed class PdfView : UserControl
     private PdfPageViewState? pendingView;
     private Task restoringView = Task.CompletedTask;
     private Task initializingHistory = Task.CompletedTask;
+    private Task initializingExternalComments = Task.CompletedTask;
     private ulong navigationId;
     public event Action<string>? OpenRequested;
     public event Action? OpenDialogRequested;
@@ -89,6 +90,7 @@ internal sealed class PdfView : UserControl
                     var state = pendingView; pendingView = null;
                     restoringView = state is null ? Task.CompletedTask : RestorePageViewAsync(state, e.NavigationId);
                     initializingHistory = InitializeLocationHistoryAsync(e.NavigationId);
+                    initializingExternalComments = InitializeExternalCommentsAsync(document.Path, e.NavigationId);
                 }
                 else ShowFailure($"PDF を表示できませんでした（{e.WebErrorStatus}）。\nファイルが破損していないか、アクセス可能か確認してください。", false);
             };
@@ -238,6 +240,24 @@ internal sealed class PdfView : UserControl
             for (int attempt = 0; attempt < 25 && !IsDisposed && navigationId == navigation; attempt++)
             {
                 var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, PdfLocationHistory.Install);
+                if (result is { ValueKind: System.Text.Json.JsonValueKind.True }) return;
+                await Task.Delay(100);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { }
+    }
+
+    private async Task InitializeExternalCommentsAsync(string path, ulong navigation)
+    {
+        try
+        {
+            var labels = await Task.Run(() => PdfExternalCommentLabels.ReadSvg(path));
+            if (labels.Length == 0) return;
+            await restoringView;
+            string script = PdfExternalCommentOverlay.Install(labels);
+            for (int attempt = 0; attempt < 25 && !IsDisposed && navigationId == navigation; attempt++)
+            {
+                var result = await PdfViewportBridge.EvaluateAsync(web.CoreWebView2, script);
                 if (result is { ValueKind: System.Text.Json.JsonValueKind.True }) return;
                 await Task.Delay(100);
             }

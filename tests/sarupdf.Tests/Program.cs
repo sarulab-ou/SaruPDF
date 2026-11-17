@@ -205,6 +205,8 @@ internal static class Program
         await Test("page-operation mode sets and restores native title bar colors", () => PageOperationTests.VerifyTitleBarAsync(root));
         await Test("current page stays centered and has a different visual marker from selected pages", () => PageOperationTests.VerifyCurrentPageAsync(root));
         foreach (var (name, run) in PdfCommentTests.Cases(root)) await Test(name, run);
+        await Test("external highlight labels retain other authors' original annotations during save", () => PdfExternalCommentTests.VerifyPreservation(root));
+        await Test("external English and Japanese comments display red in all modes without editing the PDF", () => PdfExternalCommentTests.VerifyUiAsync(root));
         await Test("comment mode caret, Enter dialog, undo, save and independent highlight rendering", () => PdfCommentTests.VerifyUiAsync(root));
         await Test("English and Japanese comments remain red in the normal WebView2 PDF viewer", () => PdfCommentTests.VerifyBrowserAsync(root));
         await Test("mouse drag across two-column paragraphs stays within the left column", () => PdfCommentTests.VerifyTwoColumnDragAsync(root));

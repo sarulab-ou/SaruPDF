@@ -20,6 +20,8 @@ internal class PdfPageCanvas : ScrollableControl
     private readonly List<SizeF> sizes = [];
     private readonly List<(NativePdf Document, uint Page)> renderPages = [];
     private readonly Dictionary<string, NativePdf> documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<PdfExternalCommentLabel>> externalLabels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<PdfExternalCommentLabel[]> pageLabels = [];
     private readonly SemaphoreSlim sourceGate = new(1);
     private int[] order = [];
     private int anchor, currentPage, insertion, epoch, layoutWidth;
@@ -97,6 +99,12 @@ internal class PdfPageCanvas : ScrollableControl
             {
                 if (IsDisposed) return;
                 var source = sources[i];
+                if (!externalLabels.TryGetValue(source.Path, out var labels))
+                {
+                    labels = await Task.Run(() => PdfExternalCommentLabels.Read(source.Path));
+                    if (IsDisposed) { foreach (var label in labels) label.Dispose(); return; }
+                    externalLabels.Add(source.Path, labels);
+                }
                 if (!documents.TryGetValue(source.Path, out var document))
                 {
                     document = await NativePdf.LoadFromFileAsync(await StorageFile.GetFileFromPathAsync(source.Path));
@@ -106,6 +114,7 @@ internal class PdfPageCanvas : ScrollableControl
                 using var page = document.GetPage(source.Page);
                 sizes.Add(new SizeF((float)page.Size.Width, (float)page.Size.Height));
                 renderPages.Add((document, source.Page));
+                pageLabels.Add(labels.Where(label => label.Page == source.Page).ToArray());
                 pdf ??= document;
                 changed = true;
             }
@@ -506,6 +515,11 @@ internal class PdfPageCanvas : ScrollableControl
                     using var adapter = stream.AsStreamForRead();
                     using var decoded = new Bitmap(adapter);
                     var bitmap = new Bitmap(decoded);
+                    if (pageLabels[original].Length > 0)
+                    {
+                        using var graphics = Graphics.FromImage(bitmap);
+                        foreach (var label in pageLabels[original]) label.Label.Draw(graphics, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+                    }
                     if (rotation != 0) bitmap.RotateFlip(rotation switch { 90 => RotateFlipType.Rotate90FlipNone, 180 => RotateFlipType.Rotate180FlipNone, _ => RotateFlipType.Rotate270FlipNone });
                     if (images.Remove(original, out var previous)) previous.Dispose();
                     images.Add(original, bitmap); Invalidate();
@@ -521,7 +535,12 @@ internal class PdfPageCanvas : ScrollableControl
     private void ClearImages() { foreach (var image in images.Values) image.Dispose(); images.Clear(); }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { epoch++; popup?.Dispose(); ClearImages(); pdf = null; documents.Clear(); renderPages.Clear(); sizes.Clear(); }
+        if (disposing)
+        {
+            epoch++; popup?.Dispose(); ClearImages(); pdf = null; documents.Clear(); renderPages.Clear(); sizes.Clear();
+            foreach (var labels in externalLabels.Values) foreach (var label in labels) label.Dispose();
+            externalLabels.Clear(); pageLabels.Clear();
+        }
         base.Dispose(disposing);
     }
 }
