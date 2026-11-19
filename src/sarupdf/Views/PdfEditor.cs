@@ -12,6 +12,7 @@ internal sealed class PdfEditor : UserControl
     internal bool CanCut => !Session.HasPendingCut && Viewer.SelectedPages.Count > 0;
     internal bool CanCopy => CanCut;
     internal bool CanRotate => CanCut;
+    internal bool CanDelete => CanCut && Viewer.SelectedPages.Count < Session.PageCount;
     internal bool CanPaste => Session.HasPendingCut || clipboard.Current is not null;
     internal event Action? StateChanged;
     internal event Action<Exception>? Failed;
@@ -26,6 +27,7 @@ internal sealed class PdfEditor : UserControl
         Viewer.SelectionChanged += UpdateState;
         Viewer.CutRequested += Cut;
         Viewer.CopyRequested += Copy;
+        Viewer.DeleteRequested += Delete;
         Viewer.PasteRequested += PasteAt;
         Viewer.ImportRequested += index => ImportRequested?.Invoke(index);
         Viewer.UndoRequested += Undo;
@@ -47,6 +49,12 @@ internal sealed class PdfEditor : UserControl
         Execute(() => { Session.Cut(Viewer.SelectedPages); RefreshPages(Math.Min(first, Session.PageCount)); });
     }
     internal void Paste() => PasteAt(Viewer.InsertionIndex);
+    internal void Delete()
+    {
+        if (!CanDelete) return;
+        int first = Viewer.SelectedPages[0];
+        Execute(() => { Session.Delete(Viewer.SelectedPages); RefreshPages(Math.Min(first, Session.PageCount - 1)); });
+    }
     internal void Copy()
     {
         if (!CanCopy) return;

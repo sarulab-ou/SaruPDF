@@ -91,6 +91,20 @@ internal sealed class PdfEditSession : IDisposable
         foreach (int index in selected.Reverse()) pages.RemoveAt(index);
     }
 
+    internal void Delete(IEnumerable<int> indexes)
+    {
+        if (HasPendingCut) throw new InvalidOperationException("切り取り中のページを貼り付けるか、元に戻してください。");
+        int[] selected = indexes.Distinct().Order().ToArray();
+        if (selected.Length == 0 || selected.Any(index => index < 0 || index >= PageCount))
+            throw new ArgumentOutOfRangeException(nameof(indexes));
+        if (selected.Length == PageCount) throw new InvalidOperationException("すべてのページは削除できません。1ページ以上残してください。");
+        var removed = selected.Select(index => pages[index]).ToHashSet();
+        Remember();
+        foreach (int index in selected.Reverse()) pages.RemoveAt(index);
+        comments.RemoveAll(comment => removed.Contains(comment.PageId));
+        foreach (int page in removed) rotations.Remove(page);
+    }
+
     // index is a gap in the remaining pages: 0 is the start, Count is the end.
     internal void Paste(int index)
     {

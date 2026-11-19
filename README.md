@@ -2,7 +2,7 @@
 
 Windows向けのシンプルなPDFビューアー・ページ操作アプリです。余分なツールバーやページ一覧を表示せず、PDFを広く表示します。ページの並べ替えや、本文へのコメントもPDF画面上で操作できます。
 
-**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.19/SaruPDF-0.7.19-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
+**[Windows版をダウンロード](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.20/SaruPDF-0.7.20-Setup-x64.exe)** · [使い方](#使い方) · [ショートカット](#ショートカット) · [開発・ビルド](docs/development.md)
 
 ![SaruPDFでPDFを表示し、編集メニューからViewモード、ページ操作モード、コメントモードを選択する画面。本文のハイライトの上には赤字のコメントが表示されています。](docs/screenshots/sarupdf.png)
 
@@ -19,11 +19,11 @@ Windows向けのシンプルなPDFビューアー・ページ操作アプリで�
 
 ## ダウンロード・インストール
 
-**[SaruPDF v0.7.19 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.19/SaruPDF-0.7.19-Setup-x64.exe)**
+**[SaruPDF v0.7.20 インストーラー（Windows x64）](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.20/SaruPDF-0.7.20-Setup-x64.exe)**
 
-[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.19) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.19/SaruPDF-0.7.19-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
+[リリースノート](https://github.com/sarulab-ou/SaruPDF/releases/tag/v0.7.20) · [SHA-256チェックサム](https://github.com/sarulab-ou/SaruPDF/releases/download/v0.7.20/SaruPDF-0.7.20-SHA256SUMS.txt) · [すべてのリリース](https://github.com/sarulab-ou/SaruPDF/releases)
 
-現在の公開版は **v0.7.19** です。
+現在の公開版は **v0.7.20** です。
 
 1. Windows 10（1809以降）またはWindows 11のx64環境でインストーラーを実行します。現在のユーザー用にインストールするため、管理者権限は不要です。
 2. **WebView2 Runtime**が必要です。インストールされていない場合は、アプリの案内に従い[Microsoft公式サイト](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)からEvergreen Runtime（x64）を入れてください。.NET Runtimeは同梱しています。
@@ -84,6 +84,8 @@ Viewモードで引用などのPDF内リンクをたどった後は、**ツー�
 
 コピーするときはページを選んで**Ctrl+C**を押し、別のPDFのページ操作モードで貼り付けます。コピー元は変更されません。コピーしたページはSaruPDF内で共有され、アプリを終了すると消去されます。他のPDFアプリとのページの受け渡しには対応していません。
 
+不要なページは選択して、右クリックの**「削除」**または **Delete（Del）キー**で削除できます。複数ページをまとめて削除でき、Ctrl+Zで元に戻せます。変更はCtrl+Sで保存します。1ページ以上残す必要があるため、全ページを選択している場合は削除できません。切り取り中も削除を無効にします。コピー済みのページはそのまま保持します。
+
 ページ間の右クリックメニューから**「ここにPDFをインポート…」**を選ぶと、別のPDFの全ページを挿入できます。複数ファイルをまとめて選択することもできます。操作はCtrl+Zで元に戻せます。
 
 ページ操作モードではページを画像として画面に表示しますが、保存するPDF自体は画像化しません。切り取り中のページは、貼り付けるまで保存できません。外部アプリで元ファイルが変更された場合は上書きせず、別名で保存してください。
@@ -117,6 +119,7 @@ Page Down／Page UpやHome／Endで移動した直後は、キャレットの位
 | ページを範囲選択（ページ操作モード） | Shift+移動キー、Shift+クリック |
 | ページを追加・解除／全選択（ページ操作モード） | Ctrl+クリック / Ctrl+A |
 | ページを切り取り／コピー／貼り付け（ページ操作モード） | Ctrl+X / Ctrl+C / Ctrl+V |
+| 選択ページを削除（ページ操作モード） | Delete / 右クリック → 削除 |
 | 選択ページを右／左に90度回転（ページ操作モード） | Ctrl+R / Ctrl+L |
 | 拡大・縮小（ページ操作モード） | Ctrl+「+」/ Ctrl+「-」/ Ctrl+ホイール |
 | 文字を選択（コメントモード） | マウスドラッグ / Shift+移動キー |
@@ -148,6 +151,6 @@ C#、.NET 10、Windows Forms、Microsoft Edge WebView2で実装しています�
 .\scripts\Test.ps1
 ```
 
-ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは111件です。
+ビルドやインストーラー作成の詳細は[開発・ビルドガイド](docs/development.md)を参照してください。現在のソースの自動テストは114件です。
 
 [検証記録](docs/verification.md) · [サードパーティー通知](THIRD-PARTY-NOTICES.md)

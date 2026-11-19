@@ -193,6 +193,8 @@ internal static class Program
         foreach (var (name, run) in PdfCopyTests.Cases(root)) await Test(name, run);
         await Test("two PDF windows copy multiple pages, close source, paste repeatedly and save real rendering", () => PdfCopyTests.VerifyWindowsAsync(root));
         foreach (var (name, run) in PageOperationTests.Cases(root)) await Test(name, run);
+        foreach (var (name, run) in PageDeletionTests.Cases(root)) await Test(name, run);
+        await Test("page context menu and Delete key remove selected pages with undo and respect text focus", () => PageDeletionTests.VerifyUiAsync(root));
         await Test("page-operation plus/minus shortcuts zoom and preserve the visible page", () => PageOperationTests.VerifyZoomAsync(root));
         await Test("rotation menu, context menu and shortcuts rotate selected pages visibly", () => PageOperationTests.VerifyRotationUiAsync(root));
         await Test("boundary import menu inserts all PDF pages into existing documents", () => PageOperationTests.VerifyBoundaryImportAsync(root));

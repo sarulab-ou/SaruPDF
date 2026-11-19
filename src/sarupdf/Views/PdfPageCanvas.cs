@@ -50,6 +50,7 @@ internal class PdfPageCanvas : ScrollableControl
     internal event Action? SelectionChanged;
     internal event Action? CutRequested;
     internal event Action? CopyRequested;
+    internal event Action? DeleteRequested;
     internal event Action<int>? PasteRequested;
     internal event Action<int>? ImportRequested;
     internal event Action? UndoRequested;
@@ -250,6 +251,8 @@ internal class PdfPageCanvas : ScrollableControl
             { Name = "CutPages", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+X" });
             menu.Items.Add(new ToolStripMenuItem($"選択した {selected.Count} ページをコピー", null, (_, _) => CopyRequested?.Invoke())
             { Name = "CopyPages", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+C" });
+            menu.Items.Add(new ToolStripMenuItem("削除(&D)", null, (_, _) => DeleteRequested?.Invoke())
+            { Name = "DeletePages", Enabled = !HasPendingCut && selected.Count > 0 && selected.Count < order.Length, ShortcutKeyDisplayString = "Del" });
             menu.Items.Add(new ToolStripMenuItem("右に90度", null, (_, _) => RotateRequested?.Invoke(90))
             { Name = "RotateRight", Enabled = !HasPendingCut && selected.Count > 0, ShortcutKeyDisplayString = "Ctrl+R" });
             menu.Items.Add(new ToolStripMenuItem("左に90度", null, (_, _) => RotateRequested?.Invoke(-90))
@@ -318,6 +321,7 @@ internal class PdfPageCanvas : ScrollableControl
     internal void CancelPageInput() { pageInput.Clear(); Invalidate(); }
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (ShowPageSelection && keyData == Keys.Delete) { CancelPageInput(); DeleteRequested?.Invoke(); return true; }
         if (TryHandlePageMoveKey(keyData)) return true;
         if (TryHandleZoomKey(keyData)) return true;
         if (keyData == (Keys.Control | Keys.A)) { SelectAll(); return true; }

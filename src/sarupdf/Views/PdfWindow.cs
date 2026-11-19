@@ -617,6 +617,7 @@ internal sealed class PdfWindow : Form
         if (editor.Viewer.TryHandleZoomKey(keyData)) return true;
         Action? command = keyData switch
         {
+            Keys.Delete => () => editor?.Delete(),
             Keys.Control | Keys.X => () => editor?.Cut(),
             Keys.Control | Keys.C => () => editor?.Copy(),
             Keys.Control | Keys.V => () => editor?.Paste(),
